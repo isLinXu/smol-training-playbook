@@ -25,7 +25,7 @@ import rehypeWrapOutput from './plugins/rehype/wrap-outputs.mjs';
 export default defineConfig({
   output: 'static',
   // GitHub Pages configuration
-  site: 'https://gatilin.github.io',
+  site: 'https://isLinXu.github.io',
   base: '/smol-training-playbook',
   trailingSlash: 'ignore',
   integrations: [
