@@ -1,0 +1,7 @@
+Packing,Batch size,Runtime (min)
+FALSE,128,117.7
+TRUE,8,30.8
+TRUE,16,26
+TRUE,32,23
+TRUE,64,22.1
+TRUE,128,22.1

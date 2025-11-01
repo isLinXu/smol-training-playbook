@@ -1,0 +1,9 @@
+run_name,message_size,latency
+Host-to-Device,1024,25
+Host-to-Device,4096,35
+Host-to-Device,16384,50
+Host-to-Device,65536,120
+Host-to-Device,262144,1320
+Host-to-Device,1048576,1430
+Host-to-Device,4194304,1420
+Host-to-Device,16777216,1440

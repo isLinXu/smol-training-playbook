@@ -1,0 +1,3 @@
+Model,Turn 1,Turn 2,Turn 3
+Qwen3-1.7B,97.14,96.48,95.42
+Hybrid baseline,69.75,26.95,6.25
