@@ -1,4 +1,212 @@
 ---
-// Redirect to the default locale version
-return Astro.redirect('/zh/');
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import ThemeToggle from "../../components/ThemeToggle.astro";
+import LanguageToggle from "../../components/LanguageToggle.astro";
+import { getCollection } from 'astro:content';
+
+const zhEntries = await getCollection('zh');
+const chapters = zhEntries
+  .filter(entry => entry.id.includes('/'))
+  .map(entry => {
+    const parts = entry.id.split('/');
+    const chapterDir = parts[0];
+    const fileName = parts[1].replace(/\.(md|mdx)$/, '');
+    return {
+      slug: chapterDir,
+      title: entry.data.title || chapterDir,
+      description: entry.data.description || '',
+      fileName
+    };
+  })
+  .sort((a, b) => a.slug.localeCompare(b.slug));
+
+const t = {
+  title: '小语言模型训练手册',
+  subtitle: '基于训练 SmolLM3 的真实经验，撰写的一份训练紧凑型语言模型的全面指南',
+  chapters_title: '目录',
+  back: '返回'
+};
+
+const chapterNames: Record<string, string> = {
+  '01-jianjie': '简介',
+  '02-xunlian': '训练罗盘',
+  '03-xiaoxiao': '小型消融实验',
+  '04-jiagou': '模型架构',
+  '05-shuju': '数据策划',
+  '06-xunlian': '训练执行',
+  '07-houcheng': '后训练',
+  '08-jichu': '基础设施',
+  '09-jielun': '结论',
+  '10-cankao': '参考文献'
+};
 ---
+
+<BaseLayout title={`${t.title} - 目录`} locale="zh">
+  <div class="chapter-list-container">
+    <div class="top-bar">
+      <LanguageToggle currentLocale="zh" />
+      <ThemeToggle />
+    </div>
+
+    <header class="chapter-header">
+      <h1>{t.title}</h1>
+      <p class="subtitle">{t.subtitle}</p>
+    </header>
+
+    <nav class="chapter-nav">
+      <h2>{t.chapters_title}</h2>
+      <ul class="chapter-grid">
+        {chapters.map((chapter) => (
+          <li>
+            <a href={`/zh/${chapter.slug}`} class="chapter-card">
+              <span class="chapter-number">{chapter.slug.split('-')[0]}</span>
+              <span class="chapter-title">{chapterNames[chapter.slug] || chapter.title}</span>
+              <svg class="arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+
+    <footer class="page-footer">
+      <a href="/" class="back-link">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 12H5M12 19l-7-7 7-7"/>
+        </svg>
+        {t.back}（English）
+      </a>
+    </footer>
+  </div>
+</BaseLayout>
+
+<style>
+  .chapter-list-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+
+  .top-bar {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .chapter-header {
+    text-align: center;
+    margin-bottom: 3rem;
+    padding-top: 2rem;
+  }
+
+  .chapter-header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-secondary, #6b7280);
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  .chapter-nav h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    color: var(--text-color);
+  }
+
+  .chapter-grid {
+    display: grid;
+    gap: 1rem;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .chapter-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--color-surface, #f9fafb);
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: 12px;
+    text-decoration: none;
+    color: var(--text-color);
+    transition: all 0.2s ease;
+  }
+
+  .chapter-card:hover {
+    background: var(--color-primary-light, #eef2ff);
+    border-color: var(--color-primary, #6366f1);
+    transform: translateX(4px);
+    text-decoration: none;
+  }
+
+  .chapter-number {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-primary, #6366f1);
+    min-width: 2rem;
+  }
+
+  .chapter-title {
+    flex: 1;
+    font-size: 1.1rem;
+    font-weight: 500;
+  }
+
+  .arrow {
+    color: var(--color-primary, #6366f1);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .chapter-card:hover .arrow {
+    opacity: 1;
+  }
+
+  .page-footer {
+    margin-top: 3rem;
+    text-align: center;
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #6b7280;
+    font-size: 0.875rem;
+    text-decoration: none;
+  }
+
+  .back-link:hover {
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+
+  [data-theme="dark"] .chapter-card {
+    background: var(--color-surface, #1f2937);
+    border-color: var(--color-border, #374151);
+  }
+
+  [data-theme="dark"] .chapter-card:hover {
+    background: var(--color-primary-light, #1e1b4b);
+  }
+
+  [data-theme="dark"] .subtitle {
+    color: #9ca3af;
+  }
+</style>

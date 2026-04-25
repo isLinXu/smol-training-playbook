@@ -4,6 +4,7 @@ import * as ArticleMod from "../content/articles/article.mdx";
 import Hero from "../components/Hero.astro";
 import Footer from "../components/Footer.astro";
 import ThemeToggle from "../components/ThemeToggle.astro";
+import LanguageToggle from "../components/LanguageToggle.astro";
 import Seo from "../components/Seo.astro";
 import TableOfContents from "../components/TableOfContents.astro";
 // Default OG image served from public/
@@ -341,7 +342,10 @@ const licence =
     </script>
   </head>
   <body>
-    <ThemeToggle />
+    <div class="top-bar">
+      <LanguageToggle currentLocale="en" />
+      <ThemeToggle />
+    </div>
     <Hero
       title={docTitleHtml}
       titleRaw={docTitle}
@@ -437,6 +441,17 @@ const licence =
     </script>
 
     <style is:global>
+      /* Top bar for language and theme toggles */
+      .top-bar {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
       /* Viz Mode - Hide everything by default */
       .viz-mode main > * {
         display: none !important;

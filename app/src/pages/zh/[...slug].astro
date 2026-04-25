@@ -1,5 +1,7 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
+import LanguageToggle from '../../components/LanguageToggle.astro';
+import ThemeToggle from '../../components/ThemeToggle.astro';
 import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
@@ -29,6 +31,10 @@ const t = {
 ---
 
 <BaseLayout title={`${title} - 小语言模型训练手册`} locale="zh">
+  <div class="top-bar">
+    <LanguageToggle currentLocale="zh" />
+    <ThemeToggle />
+  </div>
   <article class="chapter-content">
     <header class="chapter-header">
       <a href="/zh" class="back-link">
@@ -47,6 +53,16 @@ const t = {
 </BaseLayout>
 
 <style>
+  .top-bar {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .chapter-content {
     max-width: 800px;
     margin: 0 auto;
