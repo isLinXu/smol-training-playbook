@@ -1,0 +1,150 @@
+---
+/**
+ * Interactive Chart Component using Chart.js
+ * 交互式图表组件
+ */
+import { aimeBenchmarks, trainingScales, dataComposition } from '../data/charts';
+
+interface Props {
+  type?: 'bar' | 'line' | 'doughnut' | 'radar';
+  dataKey?: 'aime' | 'training-scale' | 'data-composition';
+  height?: number;
+}
+
+const { type = 'bar', dataKey = 'aime', height = 400 } = Astro.props;
+
+const chartId = `chart-${dataKey}-${Math.random().toString(36).substr(2, 9)}`;
+
+let chartData: any;
+let chartTitle = '';
+
+if (dataKey === 'aime') {
+  chartTitle = aimeBenchmarks.title;
+  chartData = {
+    labels: aimeBenchmarks.models.map(m => m.name),
+    datasets: [{
+      label: 'Score (%)',
+      data: aimeBenchmarks.models.map(m => m.score),
+      backgroundColor: aimeBenchmarks.models.map(m =>
+        m.name.includes('SmolLM3') ? '#3B82F6' : '#94A3B8'
+      ),
+      borderColor: aimeBenchmarks.models.map(m =>
+        m.name.includes('SmolLM3') ? '#2563EB' : '#64748B'
+      ),
+      borderWidth: 2,
+    }]
+  };
+} else if (dataKey === 'training-scale') {
+  chartTitle = trainingScales.title;
+  chartData = {
+    labels: trainingScales.data.map(d => d.label),
+    datasets: [{
+      label: 'Parameters (B)',
+      data: trainingScales.data.map(d => d.params),
+      backgroundColor: '#3B82F6',
+      borderColor: '#2563EB',
+      borderWidth: 2,
+    }, {
+      label: 'Training Tokens (T)',
+      data: trainingScales.data.map(d => d.tokens),
+      backgroundColor: '#10B981',
+      borderColor: '#059669',
+      borderWidth: 2,
+    }]
+  };
+} else if (dataKey === 'data-composition') {
+  chartTitle = dataComposition.title;
+  chartData = {
+    labels: dataComposition.categories.map(c => c.name),
+    datasets: [{
+      data: dataComposition.categories.map(c => c.percentage),
+      backgroundColor: dataComposition.categories.map(c => c.color),
+      borderWidth: 2,
+      borderColor: '#ffffff',
+    }]
+  };
+}
+---
+
+<div class="chart-container" style={`height: ${height}px`}>
+  <h4 class="chart-title">{chartTitle}</h4>
+  <canvas id={chartId}></canvas>
+</div>
+
+<script define:vars={{ chartId, chartData, chartType: type }}>
+  import Chart from 'chart.js/auto';
+
+  const ctx = document.getElementById(chartId);
+  if (ctx) {
+    const chart = new Chart(ctx, {
+      type: chartType,
+      data: chartData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: {
+              font: { size: 12, family: 'Inter, system-ui, sans-serif' },
+              color: '#374151',
+            }
+          },
+          tooltip: {
+            backgroundColor: '#1F2937',
+            titleColor: '#F9FAFB',
+            bodyColor: '#F9FAFB',
+            padding: 12,
+            cornerRadius: 8,
+          }
+        },
+        scales: chartType !== 'doughnut' ? {
+          y: {
+            beginAtZero: true,
+            grid: { color: '#E5E7EB' },
+            ticks: { color: '#6B7280' }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { color: '#6B7280', maxRotation: 45 }
+          }
+        } : undefined,
+        animation: {
+          duration: 1000,
+          easing: 'easeOutQuart',
+        },
+      }
+    });
+  }
+</script>
+
+<style>
+  .chart-container {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border: 1px solid #E5E7EB;
+  }
+
+  .chart-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1F2937;
+    margin: 0 0 1rem 0;
+    text-align: center;
+  }
+
+  @media (max-width: 768px) {
+    .chart-container {
+      padding: 1rem;
+      height: auto !important;
+      min-height: 300px;
+    }
+
+    canvas {
+      max-height: 250px;
+    }
+  }
+</style>

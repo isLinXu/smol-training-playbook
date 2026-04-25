@@ -1,0 +1,176 @@
+---
+/**
+ * Code Block Component with Syntax Highlighting
+ * 代码块组件 - 语法高亮
+ */
+interface Props {
+  code: string;
+  language?: string;
+  filename?: string;
+  showLineNumbers?: boolean;
+}
+
+const { code, language = 'python', filename, showLineNumbers = true } = Astro.props;
+const lineNumbers = code.split('\n').map((_, i) => i + 1);
+---
+
+<div class="code-block">
+  {filename && (
+    <div class="code-header">
+      <span class="code-lang">{language.toUpperCase()}</span>
+      <span class="code-filename">{filename}</span>
+    </div>
+  )}
+  <div class="code-wrapper">
+    {showLineNumbers && (
+      <div class="line-numbers" aria-hidden="true">
+        {lineNumbers.map(n => <span>{n}</span>)}
+      </div>
+    )}
+    <pre class={`language-${language}`}><code>{code}</code></pre>
+    <button class="copy-btn" aria-label="Copy code" data-code={code}>
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const code = btn.getAttribute('data-code');
+      if (code) {
+        await navigator.clipboard.writeText(code);
+        btn.classList.add('copied');
+        setTimeout(() => btn.classList.remove('copied'), 2000);
+      }
+    });
+  });
+</script>
+
+<style>
+  .code-block {
+    background: #1E293B;
+    border-radius: 12px;
+    margin: 1.5rem 0;
+    overflow: hidden;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  }
+
+  .code-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: #0F172A;
+    border-bottom: 1px solid #334155;
+  }
+
+  .code-lang {
+    background: #3B82F6;
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .code-filename {
+    color: #94A3B8;
+    font-size: 0.85rem;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  .code-wrapper {
+    display: flex;
+    position: relative;
+  }
+
+  .line-numbers {
+    display: flex;
+    flex-direction: column;
+    padding: 1rem 0;
+    background: #1E293B;
+    color: #475569;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    text-align: right;
+    user-select: none;
+    min-width: 3rem;
+    border-right: 1px solid #334155;
+  }
+
+  .line-numbers span {
+    padding: 0 0.75rem;
+  }
+
+  pre {
+    margin: 0;
+    padding: 1rem;
+    overflow-x: auto;
+    flex: 1;
+  }
+
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: #E2E8F0;
+    white-space: pre;
+  }
+
+  /* Syntax highlighting colors */
+  :global(.keyword) { color: #C084FC; }
+  :global(.string) { color: #34D399; }
+  :global(.number) { color: #FBBF24; }
+  :global(.comment) { color: #64748B; font-style: italic; }
+  :global(.function) { color: #60A5FA; }
+  :global(.variable) { color: #F472B6; }
+  :global(.operator) { color: #FB7185; }
+  :global(.class-name) { color: #38BDF8; }
+
+  .copy-btn {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    background: #334155;
+    border: none;
+    border-radius: 6px;
+    padding: 0.5rem;
+    cursor: pointer;
+    color: #94A3B8;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .copy-btn:hover {
+    background: #475569;
+    color: #F1F5F9;
+  }
+
+  .copy-btn.copied {
+    background: #10B981;
+    color: white;
+  }
+
+  @media (max-width: 768px) {
+    .code-block {
+      border-radius: 8px;
+      margin: 1rem 0;
+    }
+
+    pre, code {
+      font-size: 0.8rem;
+    }
+
+    .line-numbers {
+      display: none;
+    }
+  }
+</style>

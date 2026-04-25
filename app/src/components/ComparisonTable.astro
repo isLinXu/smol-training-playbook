@@ -1,0 +1,118 @@
+---
+/**
+ * Comparison Table Component
+ * 对比表格组件
+ */
+interface Props {
+  headers: string[];
+  rows: string[][];
+  caption?: string;
+  striped?: boolean;
+  hover?: boolean;
+}
+
+const {
+  headers,
+  rows,
+  caption,
+  striped = true,
+  hover = true
+} = Astro.props;
+---
+
+<figure class="table-container">
+  {caption && <figcaption class="table-caption">{caption}</figcaption>}
+  <table class:list={['comparison-table', { striped, hover }]}>
+    <thead>
+      <tr>
+        {headers.map(h => <th>{h}</th>)}
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map(row => (
+        <tr>
+          {row.map((cell, i) => (
+            <td class={i === 0 ? 'row-header' : ''}>{cell}</td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</figure>
+
+<style>
+  .table-container {
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+
+  .table-caption {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.75rem;
+    text-align: left;
+  }
+
+  .comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    font-size: 0.9rem;
+  }
+
+  thead {
+    background: linear-gradient(135deg, #1F2937 0%, #374151 100%);
+    color: white;
+  }
+
+  th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid #E5E7EB;
+    color: #4B5563;
+  }
+
+  .row-header {
+    font-weight: 600;
+    color: #1F2937;
+    background: #F9FAFB;
+  }
+
+  /* Striped rows */
+  .sriped tbody tr:nth-child(odd) {
+    background: #F9FAFB;
+  }
+
+  /* Hover effect */
+  .hover tbody tr:hover {
+    background: #EFF6FF;
+    transition: background 0.15s ease;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  @media (max-width: 768px) {
+    .comparison-table {
+      font-size: 0.85rem;
+    }
+
+    th, td {
+      padding: 0.75rem;
+    }
+  }
+</style>

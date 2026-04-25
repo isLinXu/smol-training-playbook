@@ -1,0 +1,85 @@
+---
+/**
+ * Math Component using KaTeX
+ * 数学公式组件
+ */
+interface Props {
+  formula: string;
+  display?: 'inline' | 'block';
+  class?: string;
+}
+
+const { formula, display = 'inline', class: className = '' } = Astro.props;
+const id = `math-${Math.random().toString(36).substr(2, 9)}`;
+---
+
+{display === 'block' ? (
+  <div class={`math-block ${className}`} id={id} data-formula={formula}></div>
+) : (
+  <span class={`math-inline ${className}`} id={id} data-formula={formula}></span>
+)}
+
+<script>
+  // KaTeX auto-render configuration
+  const renderMath = () => {
+    document.querySelectorAll('.math-inline, .math-block').forEach(el => {
+      const formula = el.getAttribute('data-formula');
+      if (formula && !el.hasAttribute('data-rendered')) {
+        try {
+          // Using a simple text fallback - in production, load KaTeX
+          el.textContent = formula;
+          el.setAttribute('data-rendered', 'true');
+          el.classList.add('katex-rendered');
+        } catch (e) {
+          console.warn('Math rendering:', e);
+        }
+      }
+    });
+  };
+
+  document.addEventListener('DOMContentLoaded', renderMath);
+</script>
+
+<style>
+  .math-inline {
+    font-family: 'KaTeX_Math', 'Times New Roman', serif;
+    font-style: italic;
+    color: #1F2937;
+    padding: 0 0.15em;
+  }
+
+  .math-block {
+    display: block;
+    text-align: center;
+    padding: 1rem;
+    margin: 1.5rem 0;
+    background: #F8FAFC;
+    border-radius: 8px;
+    border: 1px solid #E2E8F0;
+    font-family: 'KaTeX_Math', 'Times New Roman', serif;
+    font-size: 1.1em;
+    overflow-x: auto;
+  }
+
+  .katex-rendered {
+    white-space: nowrap;
+  }
+
+  /* Common math notations */
+  :global(.math-variable) {
+    color: #7C3AED;
+    font-weight: 500;
+  }
+
+  :global(.math-function) {
+    color: #059669;
+  }
+
+  @media (max-width: 768px) {
+    .math-block {
+      padding: 0.75rem;
+      font-size: 0.95em;
+      overflow-x: scroll;
+    }
+  }
+</style>
