@@ -1,14 +1,12 @@
 import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
-import sitemap from '@astrojs/sitemap';
 
 // https://astro.build/config
 export default defineConfig({
   site: 'https://islinxu.github.io/smol-training-playbook',
   base: '/smol-training-playbook',
   integrations: [
-    mdx(),
-    sitemap()
+    mdx()
   ],
   i18n: {
     defaultLocale: 'en',
