@@ -1,0 +1,158 @@
+<div class="wrong-reasons"></div>
+
+<style>
+  .wrong-reasons {
+    font-family: var(--default-font-family);
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .wrong-reasons .bad-reasons {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-4);
+    margin-bottom: 0;
+  }
+
+  .wrong-reasons .reason-card {
+    background: oklch(from var(--danger-color) calc(l + 0.4) c h / 0.26);
+    border: 1px solid oklch(from var(--danger-color) calc(l + 0.15) c h / 0.5);
+    border-radius: 16px;
+    padding: var(--spacing-6) var(--spacing-8);
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 140px;
+  }
+
+  /* Dark mode adjustments for better readability */
+  [data-theme="dark"] .wrong-reasons .reason-card {
+    background: oklch(from var(--danger-color) calc(l + 0.3) c h / 0.2);
+    border-color: oklch(from var(--danger-color) calc(l + 0.1) c h / 0.6);
+  }
+
+  .wrong-reasons .reason-quote {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--danger-color);
+    margin-bottom: var(--spacing-2);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Dark mode adjustments for better readability */
+  [data-theme="dark"] .wrong-reasons .reason-quote {
+    color: oklch(from var(--danger-color) calc(l + 0.1) calc(c * 1.2) h);
+  }
+
+  .wrong-reasons .reason-explanation {
+    font-size: 13px;
+    color: oklch(from var(--danger-color) calc(l + 0.05) calc(c * 0.8) h);
+    line-height: 1.4;
+    font-weight: 500;
+    opacity: 0.9;
+    position: relative;
+    z-index: 1;
+    font-style: italic;
+    letter-spacing: -0.005em;
+    padding-left: 1.6em;
+  }
+
+  .wrong-reasons .reason-explanation::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.5em;
+    width: 1.4em;
+    height: 1.4em;
+    background-color: var(--danger-color);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 16'%3E%3Cpath d='M2 2 L2 8 L18 8 M18 8 L14 4 M18 8 L14 12' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 16'%3E%3Cpath d='M2 2 L2 8 L18 8 M18 8 L14 4 M18 8 L14 12' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    -webkit-mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    opacity: 0.85;
+    transform: translateY(-50%);
+  }
+
+  /* Dark mode adjustments for better readability */
+  [data-theme="dark"] .wrong-reasons .reason-explanation {
+    color: oklch(from var(--danger-color) calc(l + 0.2) calc(c * 0.95) h);
+    opacity: 0.95;
+  }
+
+  @media (max-width: 768px) {
+    .wrong-reasons {
+      padding: var(--spacing-5) var(--spacing-4);
+    }
+
+    .wrong-reasons .title {
+      font-size: 24px;
+    }
+
+    .wrong-reasons .bad-reasons {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  (() => {
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (!(container && container.classList && container.classList.contains('wrong-reasons'))) {
+        const candidates = Array.from(document.querySelectorAll('.wrong-reasons'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset) {
+        if (container.dataset.mounted === 'true') return;
+        container.dataset.mounted = 'true';
+      }
+
+      // Create the wrong reasons structure
+      container.innerHTML = `
+        <div class="bad-reasons">
+          <div class="reason-card">
+            <div class="reason-quote">We have compute available</div>
+            <div class="reason-explanation">That's a resource, not a goal</div>
+          </div>
+          
+          <div class="reason-card">
+            <div class="reason-quote">Everyone else is doing it</div>
+            <div class="reason-explanation">That's peer pressure, not strategy</div>
+          </div>
+          
+          <div class="reason-card">
+            <div class="reason-quote">AI is the future</div>
+            <div class="reason-explanation">That's a platitude, not a plan</div>
+          </div>
+          
+          <div class="reason-card">
+            <div class="reason-quote">We want the best model possible</div>
+            <div class="reason-explanation">That's not specific enough to guide decisions</div>
+          </div>
+        </div>
+      `;
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

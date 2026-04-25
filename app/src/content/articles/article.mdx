@@ -1,0 +1,288 @@
+---
+title: 'The Smol Training Playbook:<br/> The Secrets to Building World-Class LLMs'
+subtitle: >-
+  A practical journey through the challenges, decisions, and messy reality
+  behind training state-of-the-art language models
+description: 'The Smol Training Playbook: The Secrets to Building World-Class LLMs'
+authors:
+  - name: Loubna Ben Allal
+    url: 'https://huggingface.co/loubnabnl'
+    affiliations:
+      - 1
+  - name: Lewis Tunstall
+    url: 'https://huggingface.co/lewtun'
+    affiliations:
+      - 1
+  - name: Nouamane Tazi
+    url: 'https://huggingface.co/nouamanetazi'
+    affiliations:
+      - 1
+  - name: Elie Bakouch
+    url: 'https://huggingface.co/eliebak'
+    affiliations:
+      - 1
+  - name: Ed Beeching
+    url: 'https://huggingface.co/edbeeching'
+    affiliations:
+      - 1
+  - name: Carlos Miguel Patiño
+    url: 'https://huggingface.co/cmpatino'
+    affiliations:
+      - 1
+  - name: Clémentine Fourrier
+    url: 'https://huggingface.co/clefourrier'
+    affiliations:
+      - 1
+  - name: Thibaud Frere
+    url: 'https://huggingface.co/tfrere'
+    affiliations:
+      - 1
+  - name: Anton Lozhkov
+    url: 'https://huggingface.co/anton-l'
+    affiliations:
+      - 1
+  - name: Colin Raffel
+    url: 'https://huggingface.co/craffel'
+    affiliations:
+      - 1
+  - name: Leandro von Werra
+    url: 'https://huggingface.co/lvwerra'
+    affiliations:
+      - 1
+  - name: Thomas Wolf
+    url: 'https://huggingface.co/thomwolf'
+    affiliations:
+      - 1
+
+affiliations:
+  - name: Hugging Face
+    url: 'https://huggingface.co'
+published: 'Oct. 30, 2025'
+tags:
+  - research-article-template
+  - scientific paper
+  - data visualization
+
+tableOfContentsAutoCollapse: true
+seoThumbImage: /thumb.png
+pdfProOnly: false
+---
+
+import Sidenote from '../../components/Sidenote.astro';
+import Image from '../../components/Image.astro';
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+import Note from '../../components/Note.astro';
+import Wide from '../../components/Wide.astro';
+import Quote from '../../components/Quote.astro';
+import Reference from '../../components/Reference.astro';
+import FullWidth from '../../components/FullWidth.astro';
+
+## Introduction
+
+What does it actually take to train a high-performance LLM today?
+
+<Sidenote>
+
+Reading time: 2-4 days.
+</Sidenote>
+
+Published research makes it look straightforward: strategic architecture choices, carefully curated datasets, and sufficient compute. The results are polished, the ablations are structured and clean. Every decision seems obvious in hindsight. But those reports only show what worked and apply a bit of rosy retrospection—they don't capture the 2 a.m. dataloader debugging sessions, the loss spikes, or the subtle tensor parallelism bug that quietly sabotages your training. The reality is messier, more iterative, and full of decisions that don't make it into the final paper.
+
+Join us as we look behind the scenes of training [SmolLM3](https://huggingface.co/HuggingFaceTB/SmolLM3-3B), a 3B-parameter multilingual reasoning model trained on 11T tokens. This is not an ordinary guide, but rather the untangling of a spiderweb of decisions, discoveries, and dead ends that led to deep insights into what it takes to build world-class language models.
+
+It is also the final opus in our long-form model training series. We've worked through building datasets at scale ([FineWeb](https://huggingface.co/spaces/HuggingFaceFW/blogpost-fineweb-v1)), orchestrating thousands of GPUs to sing in unison ([The Ultra-Scale Playbook](https://huggingface.co/spaces/nanotron/ultrascale-playbook)), and selecting the best evaluations at each step of the process ([The LLM Evaluation Guidebook](https://github.com/huggingface/evaluation-guidebook)). Now we're putting it all together to build a strong AI model.
+
+### How to Read This Guide
+
+You don't need to read the whole guide from start to finish. It's structured into several distinct pieces:
+
+- **Training compass:** A high-level discussion about whether you should pretrain your own model
+- **Pretraining:** How to run ablations, select evaluations, mix data sources, make architecture choices
+- **Post-training:** SFT, DPO, GRPO, and model merging
+- **Infrastructure:** GPU layout, communication patterns, and bottleneck identification
+
+## Training Compass: Why → What → How
+
+<HtmlEmbed frameless src="/embeds/training-compass.html" />
+
+The field of machine learning has an obsessive relationship with optimization. We fixate on loss curves, model architectures, and throughput; after all, machine learning is fundamentally about optimizing the loss function of a model. Yet before diving into these technical details, there's a more fundamental question that often goes unasked: *Should we even be training this model?*
+
+As shown in the following heatmap, the open source AI ecosystem releases world-class models on a nearly daily basis: Qwen, Gemma, DeepSeek, Kimi, Llama 🪦, OLMo, the list grows longer every month.
+
+Which raises an uncomfortable point: Maybe *you* *don't need to train your own model* *.*
+
+<Note title="About this section" emoji="📍" variant="info">
+
+This section is different from the rest of this guide: It's less about experiments and technical details,
+more about strategic planning. We'll walk you through deciding <b>whether you need to train from scratch and what model to build</b>.
+</Note>
+
+### Why: The Question Nobody Wants to Answer
+
+Let's be blunt about what happens in practice. Someone gets access to a GPU cluster, maybe through a research grant, maybe through a company's spare capacity, and the thought process goes roughly like this: "We have 100 H100s for three months. Let's train a model!" The model size gets picked arbitrarily, the dataset gets assembled from whatever's available. Training starts. And six months later, after burning through compute budget and team morale, the resulting model sits unused because nobody ever asked *why.*
+
+Here are some reasons why you shouldn't train a model:
+
+<HtmlEmbed frameless src="/embeds/wrong-reasons.html" />
+
+The allure of "we trained our own model" is powerful, but before investing a lot of time and resources, it makes sense to ask: **Why do we need to train this model?**
+
+<HtmlEmbed frameless src="/embeds/train-model-decision-flowchart.html" />
+
+There are basically three common areas where custom pretraining can make sense: you want to do novel research, you have very specific needs for your production use case, or you want to fill a gap in the open model ecosystem.
+
+#### Production: Why Can't You Use an Existing Model?
+
+There are three main reasons why companies can't use off-the-shelf models for their use cases:
+
+The first reason to train your own model is **domain specificity**: when your data or tasks involve highly specialized vocabulary or structure that existing models can't handle well.
+
+A second, related reason is **deployment constraints**: when you need a Model tailored to your hardware, latency, or privacy requirements.
+
+The third reason to build your own in-house language model is **safety and governance**: You need complete control over training data, model behavior, and update cycles.
+
+<Sidenote>
+
+At this point, LLM trainers start to miraculously call it mid-training
+instead of post-training.
+</Sidenote>
+
+### Superpower: Speed and Data
+
+Of course, there are many ways to get to Rome, but we've found that what consistently sets successful LLM training teams apart is *iteration speed*. Training LLMs is really a learning-by-doing discipline: The more often you train, the better your team will become.
+
+Besides iteration speed, by far the most influential aspect of LLM training is *data curation*. There's a natural tendency to dive into architecture choices to improve the model, but the teams that excel in LLM training are the ones that are obsessed with high-quality data more than anything else.
+
+## Every Big Model Starts with a Small Ablation
+
+Before we can start training an LLM, we need to make many decisions that will shape the model's performance and training efficiency. Which architecture will best serve our use case? What optimizer and learning rate schedule should we use, and which data sources should we mix in?
+
+How these decisions are made is a frequently asked question. People sometimes expect that they require deep thought. And while strategic thinking is essential—as we covered in the [previous section](#training-compass-why--what--how)—reasoning alone isn't enough. Things are not always intuitive with LLMs, and hypotheses about what should work sometimes don't pan out in practice.
+
+<Sidenote>
+
+In many ways, machine learning resembles thermodynamics before the discovery of statistical mechanics: We have reliable empirical laws and design principles that work remarkably well, even if deeper theoretical explanations are still emerging.
+</Sidenote>
+
+Since those experiments will guide many of our crucial decisions, it's really important to set them up well. There are essentially two main attributes we want from them:
+
+1. **Speed:** They should run as fast as possible so we can iterate often
+1. **Reliability:** They should provide strong discriminative power
+
+### Choosing Your Baseline
+
+Every successful model builds on a proven foundation and modifies it for its needs. When Qwen trained their first model family, they started from Llama's architecture. When Meta trained Llama 3, they started from Llama 2. Kimi K2 started from DeepSeek-V3's MoE architecture.
+
+To make a good starting point, an architecture should:
+
+- **Match your constraints**, aligning with your deployment target and use case
+- **Be proven at scale** (demonstrated in multi-trillion-token runs)
+- **Be well-documented**, with known hyperparameters that have been proven to work
+- **Have good framework support**
+
+<Wide>
+
+| Architecture Type | Model Family | Sizes |
+| --- | --- | --- |
+| **Dense** | [Llama 3.1](https://huggingface.co/collections/meta-llama/llama-31-669fc079a0c406a149a5738f) | 8B, 70B |
+| **Dense** | [Llama 3.2](https://huggingface.co/collections/meta-llama/llama-32-66f448ffc8c32f949b04c8cf) | 1B, 3B |
+| **Dense** | [Qwen3](https://huggingface.co/collections/Qwen/qwen3-67dd247413f0e2e4f653967f) | 0.6B, 1.7B, 4B, 14B, 32B |
+| **Dense** | [Gemma 3](https://huggingface.co/collections/google/gemma-3-release-67c6c6f89c4f76621268bb6d) | 12B, 27B |
+| **Dense** | [SmolLM2](https://huggingface.co/collections/HuggingFaceTB/smollm2-6723884218bcda64b34d7db9), [SmolLM3](https://huggingface.co/HuggingFaceTB/SmolLM3-3B) | 135M, 360M, 1.7B, 3B |
+| **MoE** | [Qwen3 MoE](https://huggingface.co/collections/Qwen/qwen3-67dd247413f0e2e4f653967f) | 30B-A3B, 235B-A122B |
+| **MoE** | [DeepSeek-V3](https://huggingface.co/deepseek-ai/DeepSeek-V3) | 671B-A37B |
+
+</Wide>
+
+<Note title="Strategic experimentation" emoji="🎯" variant="success">
+
+Knowing how to run experiments isn't enough; you need to know which experiments are worth running.
+Ask yourself two questions before testing any modification:
+- Will this help my specific use case?
+- Will this optimize my training?
+</Note>
+
+### Picking a Training Framework
+
+The first decision we need to make is which framework to use for training our model. This choice involves balancing three key considerations:
+
+1. The framework must support our target architecture
+2. It needs to be stable and production-ready
+3. It should deliver strong throughput
+
+<Wide>
+
+| Framework | Features | Battle-Tested | Optimized | Extensibility |
+| --- | --- | --- | --- | --- |
+| **Megatron-LM** | ✅ Extensive | ✅ Kimi K2, Nemotron | ✅ Pioneers of 3D parallelism | ⚠️ Hard for beginners |
+| **DeepSpeed** | ✅ Extensive | ✅ BLOOM, GLM | ✅ Pioneers of ZeRO & 3D parallelism | ⚠️ Hard for beginners |
+| **TorchTitan** | ⚡ Growing | ⚠️ Newer | ⚡ Optimized for dense models | ⚡ Moderate |
+| **Nanotron** | 🎯 Minimal | ✅ Yes (StarCoder, SmolLM) | ✅ Optimized | ⚡ Moderate |
+
+</Wide>
+
+### Rules of Engagement
+
+<Quote>
+
+TL;DR: Be paranoid.
+</Quote>
+
+**Validate your evaluation suite.** Before training any models, make sure your evaluation suite can reproduce the published results of models you will compare against.
+
+**Test every change, no matter how small.** Don't underestimate the impact of that seemingly innocent library upgrade or the commit that "only changed two lines."
+
+**Change one thing at a time.** Keep everything else identical between experiments.
+
+**Train on enough tokens and use sufficient evaluations.** Cutting corners here will lead to noisy results and bad decisions.
+
+## Designing the Model Architecture
+
+Now that we have our experimental framework in place, it's time to make the big decisions that will define our model. Every choice we make, from model size to attention mechanisms to tokenizer, creates constraints and opportunities that will affect model training and usage.
+
+For SmolLM3, we wanted a strong model for on-device applications with competitive multilingual performance, solid math and coding capabilities, and robust long context handling. As we mentioned previously, this led us to a dense model with 3B parameters: large enough for strong capabilities but small enough to fit comfortably on phones.
+
+### Architecture Choices
+
+If you look at recent models like Qwen3, Gemma 3, or DeepSeek-V3, you'll see that despite their differences, they all share the same foundation: the transformer architecture introduced in 2017. Its fundamental structure hasn't changed much over the years, but there have been refinements to its core components.
+
+<Wide>
+
+<Reference id="llms-landscape-pretrain" caption="">
+
+| Model | Architecture | Parameters | Training Tokens | Attention | Context Length |
+| --- | --- | --- | --- | --- | --- |
+| DeepSeek LLM 7B | Dense | 7B | 2T | GQA | 4k |
+| DeepSeek-V3 | MoE | 671B (37B active) | 14.8T | MLA | 128k |
+| Kimi K2 | MoE | 1T (32B active) | 15.5T | MLA | 128k |
+| OLMo 2 7B | Dense | 7B | 5T | MHA | 4k |
+| SmolLM3 | Dense | 3B | 11T | GQA | 128k |
+
+</Reference>
+
+</Wide>
+
+#### Attention
+
+One of the most active areas of research around transformer architectures is the attention mechanism. While feedforward layers dominate compute during pretraining, attention becomes the main bottleneck at inference (especially with long contexts).
+
+The natural question to ask is: Do we really need new KV values for each head? Probably not, and both *multi-query attention (MQA)* and *grouped query attention (GQA)* address this.
+
+<HtmlEmbed src="/embeds/attention-mechanisms.html" />
+
+<Sidenote>
+
+RoPE (Rotary Position Embeddings) is a method for encoding positional information by rotating query and key vectors based on their positions in the sequence.
+</Sidenote>
+
+## Conclusion
+
+Training LLMs is a complex, iterative process that requires careful planning, systematic experimentation, and continuous learning. The key takeaways from this guide are:
+
+1. **Start with clear goals** - Understand why you're training and what you want to achieve
+2. **Build on proven foundations** - Use established architectures and frameworks as starting points
+3. **Run systematic ablations** - Test changes one at a time and validate results
+4. **Prioritize data quality** - Data curation is often more impactful than architecture choices
+5. **Iterate quickly** - Speed of iteration separates successful teams from others
+
+We hope this guide helps you in your LLM training journey. Remember: the most important thing is to start, learn from failures, and continuously improve your process.

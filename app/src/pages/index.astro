@@ -1,388 +1,523 @@
 ---
-import BaseLayout from '../layouts/BaseLayout.astro';
-import { getLocalePaths } from '../i18n';
+import * as ArticleMod from "../content/articles/article.mdx";
 
-export function getStaticPaths() {
-  return getLocalePaths();
-}
+import Hero from "../components/Hero.astro";
+import Footer from "../components/Footer.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
+import Seo from "../components/Seo.astro";
+import TableOfContents from "../components/TableOfContents.astro";
+// Default OG image served from public/
+const ogDefaultUrl = "/thumb.auto.jpg";
+import "katex/dist/katex.min.css";
+import "../styles/global.css";
+const articleFM = (ArticleMod as any).frontmatter ?? {};
+const Article = (ArticleMod as any).default;
+// Helper to strip HTML tags
+const stripHtml = (text: string) => String(text || "").replace(/<[^>]*>/g, "");
+// docTitle without HTML tags for SEO/meta
+const docTitle = stripHtml(articleFM?.title ?? "Untitled article");
+// Allow explicit line breaks in the title via "\n" or YAML newlines
+const docTitleHtml = (articleFM?.title ?? "Untitled article")
+  .replace(/\\n/g, "<br/>")
+  .replace(/\n/g, "<br/>");
+const subtitle = articleFM?.subtitle ?? "";
+const description = articleFM?.description ?? "";
+// Accept authors as string[] or array of objects { name, url, affiliations? }
+const rawAuthors = (articleFM as any)?.authors ?? [];
+type Affiliation = { id: number; name: string; url?: string };
+type Author = { name: string; url?: string; affiliationIndices?: number[] };
 
-const locale = Astro.currentLocale || 'en';
-
-const content = {
-  en: {
-    title: 'The Smol Training Playbook',
-    subtitle: 'Secrets to Building World-Class Compact Language Models',
-    description: 'A comprehensive guide to training small language models, based on the real-world experience of training SmolLM3.',
-    chapters: [
-      { num: 1, title: 'Introduction', href: '/en/01-intro', desc: 'Start your LLM training journey' },
-      { num: 2, title: 'Training Compass', href: '/en/02-compass', desc: 'Methodology: Why → What → How' },
-      { num: 3, title: 'Small Ablations', href: '/en/03-ablations', desc: 'Fast iteration with small experiments' },
-      { num: 4, title: 'Model Architecture', href: '/en/04-architecture', desc: 'Transformer design decisions' },
-      { num: 5, title: 'Data Curation', href: '/en/05-data', desc: 'FineWeb dataset construction' },
-      { num: 6, title: 'Training Marathon', href: '/en/06-training', desc: 'Distributed training execution' },
-      { num: 7, title: 'Post-training', href: '/en/07-posttraining', desc: 'SFT, DPO, and alignment' },
-      { num: 8, title: 'Infrastructure', href: '/en/08-infrastructure', desc: 'GPU optimization and monitoring' },
-      { num: 9, title: 'Conclusion', href: '/en/09-conclusion', desc: 'Lessons learned and future directions' },
-      { num: 10, title: 'References', href: '/en/10-references', desc: 'Complete reference list' }
-    ],
-    cta: 'Start Reading',
-    viewOnGithub: 'View on GitHub',
-    basedOn: 'Based on Hugging Face\'s SmolLM3 training experience'
-  },
-  zh: {
-    title: '小语言模型训练手册',
-    subtitle: '构建世界级紧凑型语言模型的秘密',
-    description: '基于训练 SmolLM3 的真实经验，全面指南。',
-    chapters: [
-      { num: 1, title: '简介', href: '/zh/01-jianjie', desc: '开启 LLM 训练之旅' },
-      { num: 2, title: '训练罗盘', href: '/zh/02-xunlian', desc: '方法论：为什么 → 是什么 → 怎么做' },
-      { num: 3, title: '小型消融实验', href: '/zh/03-xiaoxiao', desc: '小步快跑，快速迭代验证' },
-      { num: 4, title: '模型架构设计', href: '/zh/04-jiagou', desc: 'Transformer 架构决策' },
-      { num: 5, title: '数据策划艺术', href: '/zh/05-shuju', desc: 'FineWeb 数据集构建经验' },
-      { num: 6, title: '训练马拉松', href: '/zh/06-xunlian', desc: '分布式训练配置与执行' },
-      { num: 7, title: '后训练', href: '/zh/07-houcheng', desc: 'SFT、DPO 对齐技术' },
-      { num: 8, title: '基础设施', href: '/zh/08-jichu', desc: 'GPU 优化与监控' },
-      { num: 9, title: '结论', href: '/zh/09-jielun', desc: '经验总结与未来方向' },
-      { num: 10, title: '参考文献', href: '/zh/10-cankao', desc: '完整引用列表' }
-    ],
-    cta: '开始阅读',
-    viewOnGithub: '在 GitHub 上查看',
-    basedOn: '基于 Hugging Face 训练 SmolLM3 的真实经验'
+// Normalize affiliations from frontmatter: supports strings or objects { id?, name, url? }
+const rawAffils =
+  (articleFM as any)?.affiliations ?? (articleFM as any)?.affiliation ?? [];
+const normalizedAffiliations: Affiliation[] = (() => {
+  const seen: Map<string, number> = new Map();
+  const list: Affiliation[] = [];
+  const pushUnique = (name: string, url?: string) => {
+    const key = `${String(name).trim()}|${url ? String(url).trim() : ""}`;
+    if (seen.has(key)) return seen.get(key)!;
+    const id = list.length + 1;
+    list.push({
+      id,
+      name: String(name).trim(),
+      url: url ? String(url) : undefined,
+    });
+    seen.set(key, id);
+    return id;
+  };
+  const input = Array.isArray(rawAffils)
+    ? rawAffils
+    : rawAffils
+      ? [rawAffils]
+      : [];
+  for (const a of input) {
+    if (typeof a === "string") {
+      pushUnique(a);
+    } else if (a && typeof a === "object") {
+      const name = a.name ?? a.label ?? a.text ?? a.affiliation ?? "";
+      if (!String(name).trim()) continue;
+      const url = a.url || a.link;
+      // Respect provided numeric id for display stability if present and sequential; otherwise reassign
+      pushUnique(String(name), url ? String(url) : undefined);
+    }
   }
+  return list;
+})();
+
+// Helper: ensure an affiliation exists and return its id
+const ensureAffiliation = (val: any): number | undefined => {
+  if (val == null) return undefined;
+  if (typeof val === "number" && Number.isFinite(val) && val > 0) {
+    return Math.floor(val);
+  }
+  const name =
+    typeof val === "string"
+      ? val
+      : (val?.name ?? val?.label ?? val?.text ?? val?.affiliation);
+  if (!name || !String(name).trim()) return undefined;
+  const existing = normalizedAffiliations.find(
+    (a) => a.name === String(name).trim(),
+  );
+  if (existing) return existing.id;
+  const id = normalizedAffiliations.length + 1;
+  normalizedAffiliations.push({
+    id,
+    name: String(name).trim(),
+    url: val?.url || val?.link,
+  });
+  return id;
 };
 
-const t = content[locale as keyof typeof content] || content.en;
+// Normalize authors and map affiliations -> indices (Distill-like)
+const normalizedAuthors: Author[] = (
+  Array.isArray(rawAuthors) ? rawAuthors : []
+)
+  .map((a: any) => {
+    if (typeof a === "string") {
+      return { name: a } as Author;
+    }
+    const name = String(a?.name || "").trim();
+    const url = a?.url || a?.link;
+    let indices: number[] | undefined = undefined;
+    const raw = a?.affiliations ?? a?.affiliation ?? a?.affils;
+    if (raw != null) {
+      const entries = Array.isArray(raw) ? raw : [raw];
+      const ids = entries
+        .map(ensureAffiliation)
+        .filter((x): x is number => typeof x === "number");
+      const unique = Array.from(new Set(ids)).sort((x, y) => x - y);
+      if (unique.length) indices = unique;
+    }
+    return { name, url, affiliationIndices: indices } as Author;
+  })
+  .filter((a: Author) => a.name && a.name.trim().length > 0);
+const authorNames: string[] = normalizedAuthors.map((a) => a.name);
+const published = articleFM?.published ?? undefined;
+const tags = articleFM?.tags ?? [];
+// Prefer seoThumbImage from frontmatter if provided
+const fmOg = articleFM?.seoThumbImage as string | undefined;
+const imageAbs: string =
+  fmOg && fmOg.startsWith("http")
+    ? fmOg
+    : Astro.site
+      ? new URL(fmOg ?? ogDefaultUrl, Astro.site).toString()
+      : (fmOg ?? ogDefaultUrl);
+
+// ---- Build citation text & BibTeX from frontmatter ----
+const rawTitle = articleFM?.title ?? "Untitled article";
+const titleFlat = stripHtml(String(rawTitle))
+  .replace(/\\n/g, " ")
+  .replace(/\n/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+const extractYear = (val: string | undefined): number | undefined => {
+  if (!val) return undefined;
+  const d = new Date(val);
+  if (!Number.isNaN(d.getTime())) return d.getFullYear();
+  const m = String(val).match(/(19|20)\d{2}/);
+  return m ? Number(m[0]) : undefined;
+};
+
+const year = extractYear(published);
+const citationAuthorsText = authorNames.join(", ");
+const citationText = `${citationAuthorsText}${year ? ` (${year})` : ""}. "${titleFlat}".`;
+
+const authorsBib = authorNames.join(" and ");
+const keyAuthor = (authorNames[0] || "article")
+  .split(/\s+/)
+  .slice(-1)[0]
+  .toLowerCase();
+const keyTitle = titleFlat
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, "_")
+  .replace(/^_|_$/g, "");
+const bibKey = `${keyAuthor}${year ?? ""}_${keyTitle}`;
+const doi = (ArticleMod as any)?.frontmatter?.doi
+  ? String((ArticleMod as any).frontmatter.doi)
+  : undefined;
+const bibtex = `@misc{${bibKey},\n  title={${titleFlat}},\n  author={${authorsBib}},\n  ${year ? `year={${year}},\n  ` : ""}${doi ? `doi={${doi}}` : ""}\n}`;
+const envCollapse = false;
+const tableOfContentAutoCollapse = Boolean(
+  (articleFM as any)?.tableOfContentAutoCollapse ??
+    (articleFM as any)?.tableOfContentsAutoCollapse ??
+    envCollapse,
+);
+// Licence note (HTML allowed)
+const licence =
+  (articleFM as any)?.licence ??
+  (articleFM as any)?.license ??
+  (articleFM as any)?.licenseNote;
 ---
 
-<BaseLayout title={t.title} locale={locale}>
-  <section class="hero">
-    <div class="hero-badge">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-      </svg>
-      {locale === 'en' ? 'Hugging Face Open Source' : 'Hugging Face 开源项目'}
-    </div>
-    <h1 class="hero-title">{t.title}</h1>
-    <p class="hero-subtitle">{t.subtitle}</p>
-    <p class="hero-desc">{t.description}</p>
-    <div class="hero-actions">
-      <a href={t.chapters[0].href} class="btn btn-primary">
-        {t.cta}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M5 12h14M12 5l7 7-7 7"/>
-        </svg>
-      </a>
-      <a href="https://github.com/isLinXu/smol-training-playbook" class="btn btn-secondary" target="_blank" rel="noopener">
-        {t.viewOnGithub}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-        </svg>
-      </a>
-    </div>
-  </section>
+<html
+  lang="en"
+  data-theme="light"
+  data-toc-auto-collapse={tableOfContentAutoCollapse ? "1" : "0"}
+>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <Seo
+      title={docTitle}
+      description={description}
+      authors={authorNames}
+      published={published}
+      tags={tags}
+      image={imageAbs}
+    />
+    <script is:inline>
+      (() => {
+        try {
+          const saved = localStorage.getItem("theme");
+          const prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const theme = saved || (prefersDark ? "dark" : "light");
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch {}
+      })();
+    </script>
+    <!-- Hash Router for HF Spaces compatibility -->
+    <script is:inline>
+      (() => {
+        // Routes map: #/route -> actual page path
+        const routes = {
+          '/dataviz': '/dataviz',
+          '/trackio': '/trackio',
+        };
+        
+        function handleHashRoute() {
+          const hash = window.location.hash;
+          // Only handle hashes that start with #/ (route pattern)
+          if (!hash.startsWith('#/')) return;
+          
+          const route = hash.slice(1); // Remove the # prefix
+          const targetPath = routes[route];
+          
+          if (targetPath) {
+            // Redirect to the actual page
+            window.location.href = targetPath;
+          }
+        }
+        
+        // Check on page load
+        handleHashRoute();
+        
+        // Also listen for hash changes (in case user navigates via hash)
+        window.addEventListener('hashchange', handleHashRoute);
+      })();
+    </script>
+    <script type="module" src="/scripts/color-palettes.js"></script>
 
-  <section class="chapters">
-    <h2 class="section-title">
-      {locale === 'en' ? '📚 Chapter Overview' : '📚 章节概览'}
-    </h2>
-    <div class="chapter-grid">
-      {t.chapters.map((chapter) => (
-        <a href={chapter.href} class="chapter-card">
-          <span class="chapter-num">{String(chapter.num).padStart(2, '0')}</span>
-          <div class="chapter-content">
-            <h3 class="chapter-title">{chapter.title}</h3>
-            <p class="chapter-desc">{chapter.desc}</p>
-          </div>
-          <svg class="chapter-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M5 12h14M12 5l7 7-7 7"/>
-          </svg>
-        </a>
-      ))}
-    </div>
-  </section>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/medium-zoom@1.1.0/dist/medium-zoom.min.js"
+    ></script>
+    <script src="/src/scripts/mermaid-zoom.js"></script>
+    <script>
+      // Debug and global zoom initialization
 
-  <section class="features">
-    <h2 class="section-title">
-      {locale === 'en' ? '✨ What You\'ll Learn' : '✨ 你将学到什么'}
-    </h2>
-    <div class="feature-grid">
-      <div class="feature-card">
-        <div class="feature-icon">🔬</div>
-        <h3>{locale === 'en' ? 'Scientific Approach' : '科学方法'}</h3>
-        <p>{locale === 'en' ? 'Systematic ablation studies and data-driven decisions' : '系统化消融研究和数据驱动决策'}</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <h3>{locale === 'en' ? 'Practical Optimization' : '实践优化'}</h3>
-        <p>{locale === 'en' ? 'GPU optimization, distributed training, and monitoring' : 'GPU 优化、分布式训练与监控'}</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">📊</div>
-        <h3>{locale === 'en' ? 'Real Data' : '真实数据'}</h3>
-        <p>{locale === 'en' ? 'FineWeb dataset curation and quality filtering' : 'FineWeb 数据集策划与质量过滤'}</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🎯</div>
-        <h3>{locale === 'en' ? 'Alignment Tech' : '对齐技术'}</h3>
-        <p>{locale === 'en' ? 'SFT, DPO, and human feedback alignment' : 'SFT、DPO 与人类反馈对齐'}</p>
-      </div>
-    </div>
-  </section>
+      function initializeZoom() {
+        const zoomableImages = document.querySelectorAll(
+          'img[data-zoomable="1"]',
+        );
 
-  <section class="about-note">
-    <p>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10"/>
-        <path d="M12 16v-4M12 8h.01"/>
-      </svg>
-      {t.basedOn}
-    </p>
-  </section>
-</BaseLayout>
+        if ((window as any).mediumZoom && zoomableImages.length > 0) {
+          zoomableImages.forEach((img, index) => {
+            // Check if already initialized
+            if (!img.classList.contains("medium-zoom-image")) {
+              try {
+                const instance = (window as any).mediumZoom(img, {
+                  background: "rgba(0,0,0,.85)",
+                  margin: 24,
+                  scrollOffset: 0,
+                });
+              } catch (error) {
+                console.error(
+                  `Global script: Error initializing zoom for image ${index}:`,
+                  error,
+                );
+              }
+            } else {
+              console.log(`Global script: Image ${index} already has zoom`);
+            }
+          });
+        } else {
+          console.log(
+            "Global script: mediumZoom not available or no images found",
+          );
+        }
+      }
 
-<style>
-  .hero {
-    text-align: center;
-    padding: 3rem 0;
-    border-bottom: 1px solid #e5e7eb;
-    margin-bottom: 3rem;
-  }
+      // Try to initialize immediately
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initializeZoom);
+      } else {
+        initializeZoom();
+      }
 
-  html.dark .hero {
-    border-color: #27272a;
-  }
+      // Also try after complete loading
+      window.addEventListener("load", () => {
+        setTimeout(initializeZoom, 100);
+      });
+    </script>
+    <script>
+      // Rafraîchir certaines iframes (Trackio/Spaces) lors d'un changement de thème
+      (function () {
+        try {
+          let reloadTimer: number | null = null;
+          const isTargetIframe = (el) => {
+            if (!el || el.tagName !== "IFRAME") return false;
+            const src = el.getAttribute("src") || "";
+            return (
+              src.includes(".hf.space") || src.toLowerCase().includes("trackio")
+            );
+          };
+          const reloadIframes = () => {
+            const iframes = Array.from(
+              document.querySelectorAll("iframe"),
+            ).filter(isTargetIframe);
+            const theme =
+              document.documentElement.getAttribute("data-theme") || "light";
+            iframes.forEach((iframe) => {
+              try {
+                const currentSrc = iframe.getAttribute("src");
+                if (!currentSrc) return;
+                const url = new URL(currentSrc, window.location.href);
+                // Bump a cache-buster param et communiquer le thème courant si jamais le Space le lit
+                url.searchParams.set("_theme", theme);
+                url.searchParams.set("_ts", Date.now().toString());
+                iframe.setAttribute("src", url.toString());
+              } catch {}
+            });
+          };
+          const scheduleReload = () => {
+            if (reloadTimer) clearTimeout(reloadTimer);
+            reloadTimer = window.setTimeout(reloadIframes, 120);
+          };
+          const observer = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+              if (m.type === "attributes" && m.attributeName === "data-theme") {
+                scheduleReload();
+                break;
+              }
+            }
+          });
+          observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["data-theme"],
+          });
 
-  .hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.375rem 0.75rem;
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-    color: white;
-    border-radius: 9999px;
-    font-size: 0.875rem;
-    font-weight: 500;
-    margin-bottom: 1.5rem;
-  }
+          // Appliquer immédiatement au chargement pour couvrir les iframes lazy
+          if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", reloadIframes, {
+              once: true,
+            });
+          } else {
+            reloadIframes();
+          }
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body>
+    <ThemeToggle />
+    <Hero
+      title={docTitleHtml}
+      titleRaw={docTitle}
+      description={subtitle}
+      authors={normalizedAuthors as any}
+      affiliations={normalizedAffiliations as any}
+      affiliation={articleFM?.affiliation}
+      published={articleFM?.published}
+      doi={doi}
+      pdfProOnly={articleFM?.pdfProOnly}
+      showPdf={articleFM?.showPdf}
+    />
 
-  .hero-title {
-    font-size: 3.5rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, #1a1a2e 0%, #6366f1 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin: 0;
-    line-height: 1.1;
-  }
+    <section class="content-grid">
+      <TableOfContents
+        tableOfContentAutoCollapse={tableOfContentAutoCollapse}
+      />
+      <main>
+        <Article />
+      </main>
+    </section>
 
-  html.dark .hero-title {
-    background: linear-gradient(135deg, #e4e4e7 0%, #a5b4fc 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-  }
+    <Footer
+      citationText={citationText}
+      bibtex={bibtex}
+      licence={licence}
+      doi={doi}
+    />
 
-  .hero-subtitle {
-    font-size: 1.5rem;
-    color: #6b7280;
-    margin: 1rem 0;
-  }
+    <script>
+      // Open external links in a new tab; keep internal anchors in-page
+      const setExternalTargets = () => {
+        const isExternal = (href) => {
+          try {
+            const u = new URL(href, location.href);
+            return u.origin !== location.origin;
+          } catch {
+            return false;
+          }
+        };
+        document.querySelectorAll("a[href]").forEach((a) => {
+          const href = a.getAttribute("href");
+          if (!href) return;
+          if (isExternal(href)) {
+            a.setAttribute("target", "_blank");
+            a.setAttribute("rel", "noopener noreferrer");
+          } else {
+            a.removeAttribute("target");
+          }
+        });
+      };
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", setExternalTargets, {
+          once: true,
+        });
+      } else {
+        setExternalTargets();
+      }
+    </script>
 
-  .hero-desc {
-    font-size: 1.125rem;
-    color: #6b7280;
-    max-width: 640px;
-    margin: 0 auto 2rem;
-  }
+    <script>
+      // Delegate copy clicks for code blocks injected by rehypeCodeCopy
+      document.addEventListener("click", async (e) => {
+        const target = e.target instanceof Element ? e.target : null;
+        const btn = target ? target.closest(".code-copy") : null;
+        if (!btn) return;
+        const card = btn.closest(".code-card");
+        const pre = card && card.querySelector("pre");
+        if (!pre) return;
+        const text = pre.textContent || "";
+        try {
+          await navigator.clipboard.writeText(text.trim());
+          const old = btn.innerHTML;
+          btn.innerHTML =
+            '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 16.2l-3.5-3.5-1.4 1.4L9 19 20.3 7.7l-1.4-1.4z"/></svg>';
+          setTimeout(() => (btn.innerHTML = old), 1200);
+        } catch {
+          btn.textContent = "Error";
+          setTimeout(() => (btn.textContent = "Copy"), 1200);
+        }
+      });
+    </script>
 
-  .hero-actions {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
+    <script>
+      // Viz Mode - show only visualizations (images, embeds, tables)
+      // Activated via URL param: ?viz=true
+      (() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('viz') === 'true') {
+          document.body.classList.add('viz-mode');
+        }
+      })();
+    </script>
 
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1.5rem;
-    border-radius: 0.5rem;
-    font-weight: 600;
-    transition: all 0.2s;
-  }
+    <style is:global>
+      /* Viz Mode - Hide everything by default */
+      .viz-mode main > * {
+        display: none !important;
+      }
 
-  .btn-primary {
-    background: var(--color-primary);
-    color: white;
-  }
+      /* Show visual elements */
+      .viz-mode main .html-embed,
+      .viz-mode main .image-wrapper,
+      .viz-mode main figure,
+      .viz-mode main .table-scroll,
+      .viz-mode main table,
+      .viz-mode main .katex-display,
+      .viz-mode main .wide,
+      .viz-mode main [class*="wide"] {
+        display: block !important;
+      }
 
-  .btn-primary:hover {
-    background: #4f46e5;
-    transform: translateY(-1px);
-    text-decoration: none;
-  }
+      /* Show parents that contain visuals */
+      .viz-mode main *:has(> .html-embed),
+      .viz-mode main *:has(> .image-wrapper),
+      .viz-mode main *:has(> figure),
+      .viz-mode main *:has(> .table-scroll),
+      .viz-mode main *:has(> table),
+      .viz-mode main *:has(> .katex-display),
+      .viz-mode main *:has(> img) {
+        display: block !important;
+      }
 
-  .btn-secondary {
-    background: #f3f4f6;
-    color: var(--color-text);
-  }
+      /* Hide TOC in viz mode */
+      .viz-mode .toc-container,
+      .viz-mode .table-of-contents,
+      .viz-mode .table-of-contents-mobile,
+      .viz-mode nav[class*="toc"],
+      .viz-mode aside {
+        opacity: 0!important;
+      }
 
-  html.dark .btn-secondary {
-    background: #27272a;
-  }
+      /* Hide Hero description in viz mode but keep title */
+      .viz-mode .hero__description {
+        display: none !important;
+      }
 
-  .btn-secondary:hover {
-    background: #e5e7eb;
-    text-decoration: none;
-  }
+      .viz-mode .hero__meta {
+        display: none !important;
+      }
 
-  html.dark .btn-secondary:hover {
-    background: #3f3f46;
-  }
+      /* Adjust spacing in viz mode - keep article width */
+      .viz-mode .content-grid {
+        display: block !important;
+        max-width: min(680px, 100%) !important;
+        margin: 0 auto !important;
+        padding: 0 var(--content-padding-x) !important;
+      }
+      
+      .viz-mode main {
+        display: block !important;
+        max-width: 100% !important;
+        margin: 0 auto !important;
+      }
+      
+      .viz-mode main > * {
+        margin-bottom: 32px;
+      }
 
-  .section-title {
-    font-size: 1.75rem;
-    text-align: center;
-    margin-bottom: 2rem;
-  }
+      /* Fix table sizing in viz mode - remove ALL constraints */
+      .viz-mode main .table-scroll {
+        width: max-content !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        overflow: visible !important;
+        border: none !important;
+      }
+      
+      .viz-mode main .table-scroll > table {
+        display: table !important;
+        width: max-content !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        table-layout: auto !important;
+      }
 
-  .chapter-grid {
-    display: grid;
-    gap: 1rem;
-    margin-bottom: 3rem;
-  }
-
-  .chapter-card {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 1.25rem;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 0.75rem;
-    transition: all 0.2s;
-    text-decoration: none;
-    color: inherit;
-  }
-
-  html.dark .chapter-card {
-    background: #18181b;
-    border-color: #27272a;
-  }
-
-  .chapter-card:hover {
-    border-color: var(--color-primary);
-    transform: translateX(4px);
-    text-decoration: none;
-  }
-
-  .chapter-num {
-    font-size: 1.5rem;
-    font-weight: 800;
-    color: var(--color-primary);
-    opacity: 0.5;
-    min-width: 2.5rem;
-  }
-
-  .chapter-content {
-    flex: 1;
-  }
-
-  .chapter-title {
-    font-size: 1.125rem;
-    font-weight: 600;
-    margin: 0;
-  }
-
-  .chapter-desc {
-    font-size: 0.875rem;
-    color: #6b7280;
-    margin: 0.25rem 0 0;
-  }
-
-  .chapter-arrow {
-    color: #9ca3af;
-    transition: transform 0.2s;
-  }
-
-  .chapter-card:hover .chapter-arrow {
-    transform: translateX(4px);
-    color: var(--color-primary);
-  }
-
-  .feature-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 3rem;
-  }
-
-  .feature-card {
-    padding: 1.5rem;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 0.75rem;
-    text-align: center;
-  }
-
-  html.dark .feature-card {
-    background: #18181b;
-    border-color: #27272a;
-  }
-
-  .feature-icon {
-    font-size: 2.5rem;
-    margin-bottom: 1rem;
-  }
-
-  .feature-card h3 {
-    font-size: 1.125rem;
-    margin: 0 0 0.5rem;
-  }
-
-  .feature-card p {
-    font-size: 0.875rem;
-    color: #6b7280;
-    margin: 0;
-  }
-
-  .about-note {
-    text-align: center;
-    padding: 1.5rem;
-    background: #f3f4f6;
-    border-radius: 0.75rem;
-  }
-
-  html.dark .about-note {
-    background: #27272a;
-  }
-
-  .about-note p {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    margin: 0;
-    color: #6b7280;
-    font-size: 0.875rem;
-  }
-
-  @media (max-width: 768px) {
-    .hero-title {
-      font-size: 2.5rem;
-    }
-
-    .hero-subtitle {
-      font-size: 1.25rem;
-    }
-
-    .chapter-card {
-      flex-wrap: wrap;
-    }
-
-    .chapter-arrow {
-      display: none;
-    }
-  }
-</style>
+    </style>
+  </body>
+</html>
