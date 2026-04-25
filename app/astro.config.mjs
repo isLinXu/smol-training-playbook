@@ -4,19 +4,11 @@ import sitemap from '@astrojs/sitemap';
 
 // https://astro.build/config
 export default defineConfig({
-  site: 'https://isLinXu.github.io',
+  site: 'https://islinxu.github.io/smol-training-playbook',
   base: '/smol-training-playbook',
   integrations: [
     mdx(),
-    sitemap({
-      i18n: {
-        defaultLocale: 'en',
-        locales: {
-          en: 'en-US',
-          zh: 'zh-CN'
-        }
-      }
-    })
+    sitemap()
   ],
   i18n: {
     defaultLocale: 'en',
