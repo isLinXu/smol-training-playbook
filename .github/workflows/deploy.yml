@@ -33,6 +33,8 @@ jobs:
         run: |
           cd app
           npm run build:github
+        env:
+          FORCE_COLOR: 1
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
