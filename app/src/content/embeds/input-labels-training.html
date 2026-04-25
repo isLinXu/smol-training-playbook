@@ -1,0 +1,244 @@
+<div class="d3-input-labels"></div>
+<style>
+    .d3-input-labels {
+        margin: 0;
+        padding: 10px 0;
+    }
+
+    .d3-input-labels .container {
+        max-width: 1000px;
+        margin: 0 auto;
+        border-radius: 10px;
+    }
+
+    .d3-input-labels .sections-container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        align-items: center;
+    }
+
+    .d3-input-labels .section {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .d3-input-labels .section:first-child {
+        margin-bottom: 30px;
+    }
+
+    @media (max-width: 768px) {
+        .d3-input-labels .sections-container {
+            flex-direction: column;
+            gap: 30px;
+        }
+    }
+
+    .d3-input-labels .section {
+        flex: 1;
+        margin-bottom: 0;
+    }
+
+    .d3-input-labels .section-title {
+        font-size: 16px;
+        font-weight: bold;
+        color: var(--text-color, #333);
+        text-align: left;
+        margin-bottom: 15px;
+    }
+
+    .d3-input-labels .tokens-row {
+        display: flex;
+        gap: 3px;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        flex: 1;
+    }
+
+    .d3-input-labels .token {
+        width: 30px;
+        height: 30px;
+        border: 1px solid;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: bold;
+        color: white;
+        position: relative;
+    }
+
+    .d3-input-labels .user-token {
+        background-color: color-mix(in srgb, var(--color-0) 60%, transparent);
+        border-color: var(--color-0);
+    }
+
+    .d3-input-labels .assistant-token {
+        background-color: color-mix(in srgb, var(--color-1) 60%, transparent);
+        border-color: var(--color-1);
+    }
+
+    .d3-input-labels .label-token {
+        background-color: color-mix(in srgb, var(--color-2) 40%, transparent);
+        border-color: var(--color-2);
+        position: relative;
+    }
+
+    .d3-input-labels .label-masked {
+        background-color: transparent;
+        border-color: var(--color-2);
+        position: relative;
+        opacity: 0.5;
+    }
+
+    .d3-input-labels .label-masked::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 4px;
+        background-image: repeating-linear-gradient(135deg,
+                transparent,
+                transparent 3px,
+                var(--color-2) 3px,
+                var(--color-2) 4px);
+        opacity: 0.5;
+    }
+
+    .d3-input-labels .turn-label {
+        position: absolute;
+        top: -25px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 10px;
+        font-weight: bold;
+        color: var(--text-color, #333);
+        background: var(--surface-bg, #fafafa);
+        padding: 2px 4px;
+        white-space: nowrap;
+        border-radius: 2px;
+    }
+
+    .d3-input-labels .user-label {
+        color: var(--color-0);
+    }
+
+    .d3-input-labels .assistant-label {
+        color: var(--color-1);
+    }
+</style>
+<script>
+    (() => {
+        const bootstrap = () => {
+            const scriptEl = document.currentScript;
+            let container = scriptEl ? scriptEl.previousElementSibling : null;
+            if (!(container && container.classList && container.classList.contains('d3-input-labels'))) {
+                const candidates = Array.from(document.querySelectorAll('.d3-input-labels'))
+                    .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+                container = candidates[candidates.length - 1] || null;
+            }
+            if (!container) return;
+            if (container.dataset) {
+                if (container.dataset.mounted === 'true') return;
+                container.dataset.mounted = 'true';
+            }
+
+            // Apply categorical color palette
+            const applyColorPalette = () => {
+                try {
+                    if (window.ColorPalettes && typeof window.ColorPalettes.getColors === 'function') {
+                        const colors = window.ColorPalettes.getColors('categorical', 4);
+                        colors.forEach((color, index) => {
+                            document.documentElement.style.setProperty(`--color-${index}`, color);
+                        });
+                    } else {
+                        // Fallback colors
+                        const fallbackColors = [
+                            '#E889AB', '#4EA5B7', '#E38A42', '#CEC0FA'
+                        ];
+                        fallbackColors.forEach((color, index) => {
+                            document.documentElement.style.setProperty(`--color-${index}`, color);
+                        });
+                    }
+                } catch (e) {
+                    console.warn('ColorPalettes not available, using fallback colors');
+                }
+            };
+
+            // Apply colors immediately and on theme changes
+            applyColorPalette();
+            if (window.ColorPalettes && typeof window.ColorPalettes.refresh === 'function') {
+                window.ColorPalettes.refresh();
+            }
+
+            // Data structure for input_ids and labels
+            const inputIds = [
+                { type: 'user', count: 5, label: 'U' },
+                { type: 'assistant', count: 4, label: 'A' },
+                { type: 'user', count: 5, label: 'U' },
+                { type: 'assistant', count: 4, label: 'A' }
+            ];
+
+            const labels = [
+                { type: 'masked', count: 5, label: '-100' },
+                { type: 'active', count: 4, label: 'A' },
+                { type: 'masked', count: 5, label: '-100' },
+                { type: 'active', count: 4, label: 'A' }
+            ];
+
+            // Helper function to create tokens
+            const createTokens = (tokens, rowType) => {
+                let tokenIndex = 1;
+                return tokens.map((token, groupIndex) => {
+                    const tokens = [];
+                    for (let i = 0; i < token.count; i++) {
+                        const isFirst = i === 0;
+                        const tokenClass = token.type === 'user' ? 'user-token' :
+                            token.type === 'assistant' ? 'assistant-token' :
+                                token.type === 'active' ? 'label-token' : 'label-masked';
+
+                        const labelClass = token.type === 'user' ? 'user-label' : 'assistant-label';
+                        const labelText = token.type === 'user' ? 'user' : 'assistant';
+
+                        tokens.push(`
+                            <div class="token ${tokenClass}">
+                                ${isFirst && rowType === 'input_ids' ? `<div class="turn-label ${labelClass}">${labelText}</div>` : ''}
+                            </div>
+                        `);
+                        tokenIndex++;
+                    }
+                    return tokens.join('');
+                }).join('');
+            };
+
+            // Create the HTML structure
+            container.innerHTML = `
+                <div class="container">
+                    <div class="sections-container">
+                        <div class="section">
+                            <label class="section-title">input_ids</label>
+                            <div class="tokens-row">
+                                ${createTokens(inputIds, 'input_ids')}
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <label class="section-title">labels</label>
+                            <div class="tokens-row">
+                                ${createTokens(labels, 'labels')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+        } else {
+            bootstrap();
+        }
+    })();
+</script>
