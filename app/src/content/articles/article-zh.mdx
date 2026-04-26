@@ -1,0 +1,171 @@
+---
+title: '小语言模型训练手册：<br/> 构建世界级 LLMs 的秘密'
+subtitle: >-
+  一份基于训练 SmolLM3 真实经验的实践指南，
+  涵盖训练紧凑型语言模型的挑战、决策和真实经验
+description: '小语言模型训练手册：构建世界级 LLMs 的秘密'
+authors:
+  - name: Loubna Ben Allou
+    url: 'https://huggingface.co/loubnabnl'
+    affiliations:
+      - 1
+  - name: Lewis Tunstall
+    url: 'https://huggingface.co/lewtun'
+    affiliations:
+      - 1
+  - name: Nouamane Tazi
+    url: 'https://huggingface.co/nouamanetazi'
+    affiliations:
+      - 1
+  - name: Elie Bakouch
+    url: 'https://huggingface.co/eliebak'
+    affiliations:
+      - 1
+  - name: Ed Beeching
+    url: 'https://huggingface.co/edbeeching'
+    affiliations:
+      - 1
+  - name: Carlos Miguel Patiño
+    url: 'https://huggingface.co/cmpatino'
+    affiliations:
+      - 1
+  - name: Clémentine Fourrier
+    url: 'https://huggingface.co/clefourrier'
+    affiliations:
+      - 1
+  - name: Thibaud Frere
+    url: 'https://huggingface.co/tfrere'
+    affiliations:
+      - 1
+  - name: Anton Lozhkov
+    url: 'https://huggingface.co/anton-l'
+    affiliations:
+      - 1
+  - name: Colin Raffel
+    url: 'https://huggingface.co/craffel'
+    affiliations:
+      - 1
+  - name: Leandro von Werra
+    url: 'https://huggingface.co/lvwerra'
+    affiliations:
+      - 1
+  - name: Thomas Wolf
+    url: 'https://huggingface.co/thomwolf'
+    affiliations:
+      - 1
+affiliations:
+  - name: Hugging Face
+    url: 'https://huggingface.co'
+published: '2025年10月30日'
+tags:
+  - research-article-template
+  - scientific paper
+  - data visualization
+tableOfContentsAutoCollapse: true
+seoThumbImage: /thumb.png
+pdfProOnly: false
+---
+
+import Sidenote from '../../components/Sidenote.astro';
+import Note from '../../components/Note.astro';
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+
+## 简介
+
+训练高性能 LLM 实际上需要什么？
+
+<Sidenote>
+
+阅读时间：2-4天
+</Sidenote>
+
+发表的研究看起来很简单：战略性的架构选择、精心策划的数据集和充足的算力。结果经过精心打磨，Ablation 实验结构清晰、有条理。每一个决策都是事后才显得显而易见的。但这些报告只展示了有效的方法，并应用了一些事后诸葛的光环效应——它们并没有捕捉到凌晨2点的数据加载器调试会话、损失值突变，或者悄悄破坏训练的张量并行bug（见后文！）。现实更加混乱、更加迭代，充满了不会进入最终论文的决策。
+
+加入我们，一起深入了解 [SmolLM3](https://huggingface.co/HuggingFaceTB/SmolLM3-3B) 的训练过程——这是一个在 11T tokens 上训练的 30亿参数多语言推理模型。这不是一本普通的指南，而是一个解开迷宫般决策、发现和死胡同的过程，引导我们深入理解构建世界级语言模型的关键要素。
+
+这也是我们长篇模型训练系列的最终作品。我们已经完成了大规模数据集构建（[FineWeb](https://huggingface.co/spaces/HuggingFaceFW/blogpost-fineweb-v1)）、编排数千个 GPU 协调运行（[Ultra-Scale Playbook](https://huggingface.co/spaces/nanotron/ultrascale-playbook)），以及在每个步骤中选择最佳评估（[LLM Evaluation Guidebook](https://github.com/huggingface/evaluation-guidebook)）。现在我们将这一切整合起来，构建一个强大的 AI 模型。我们将带您完成整个旅程——不仅仅是最终有效的配方，还包括失败的基础设施故障和塑造每个决策的调试过程。您将看到有前景的小规模 Ablation 实验为何有时无法在规模上转化；为什么我们在 1T tokens 后重新启动训练运行；如何在保持强大英语语言性能的同时平衡多语言、数学和代码的竞争目标；以及最终如何训练混合推理模型。
+
+我们试图避免简单地列出我们所做的一切，而是呈现一个关于我们冒险经历的有组织的故事。把它想象成任何试图从"我们有一个很好的数据集和 GPU"到"我们构建了一个非常强大的模型"的人的指南。我们希望这种开放的态度能够帮助弥合研究和生产之间的差距，让您的下一次训练运行少一些混乱。
+
+### 如何阅读本指南
+
+您不需要从头到尾阅读整个指南，而且按照目前的长度来看，实际上也不可能一次坐下来从头到尾读完。它被分成几个不同的部分，任何部分都可以跳过或单独阅读：
+
+- **训练罗盘：** 关于是否应该预训练自己的模型的高层讨论。我们将带您了解在烧光所有风险投资之前应该问自己的基本问题，以及如何系统地思考决策过程。这是一个高层部分；如果您想直接跳到技术内容，可以这样做。
+- **预训练：** 训练罗盘之后的章节涵盖了为您自己的预训练运行构建可靠配方所需的一切知识：如何运行 Ablation、选择评估、混合数据源、做架构选择、调整超参数，最后完成训练马拉松。如果您不打算从头开始预训练，但对继续预训练（也称为中间训练）感兴趣，这部分也很相关。
+- **后训练：** 在本指南的这一部分，您将学习从预训练模型中获得最大收益所需的所有技巧。我们将涵盖整个后训练字母表，从 SFT、DPO 和 GRPO 开始，到模型合并的黑魔法和炼金术。使这些算法良好运行的大部分知识是通过痛苦的教训学到的，我们将在这里分享我们的经验，希望能让您免除一些痛苦。
+- **基础设施：** 如果预训练是蛋糕，后训练是糖霜和樱桃，那么基础设施就是工业级烤箱。没有它，什么都不会发生，如果它坏了，您的周日烘焙愉快时光就会变成火灾隐患。关于如何理解、分析和调试 GPU 集群的知识分散在互联网上的各个库、文档和论坛中。本节将介绍 GPU 布局、CPU/GPU/节点/存储之间的通信模式，以及如何识别和克服瓶颈。
+
+那么我们从哪里开始呢？选择您最感兴趣的部分，开始吧！
+
+<Sidenote>
+
+如果您有问题或意见，请在 [社区标签页](https://huggingface.co/spaces/HuggingFaceTB/smol-training-playbook/discussions) 上开启讨论！
+</Sidenote>
+
+## 训练罗盘：为什么 → 做什么 → 怎么做
+
+<HtmlEmbed frameless src="/embeds/training-compass.html" />
+
+机器学习领域与优化有着痴迷的关系。我们痴迷于损失曲线、模型架构和吞吐量；毕竟，机器学习从根本上来说就是优化模型的损失函数。但在深入这些技术细节之前，有一个更基本的问题经常被忽视：我们真的应该训练这个模型吗？
+
+如下图所示，开源 AI 生态系统几乎每天都会发布世界级模型：Qwen、Gemma、DeepSeek、Kimi、Llama 🪦、OLMo，这个列表每月都在增长。这些不仅仅是研究原型或玩具示例：它们是生产级模型，覆盖了令人惊讶的广泛用例，从多语言理解到代码生成和推理。它们大多数采用宽松的许可证，并有活跃的社区随时为您提供帮助。
+
+<iframe class="card card--p0" frameborder="0" width="100%" height="600px" src="https://cfahlgren1-model-release-heatmap.hf.space/"/>
+
+这就提出了一个不争的事实：也许你不需要训练自己的模型。
+
+这似乎是开始"LLM 训练指南"的奇怪方式。但许多失败的训练项目并非因为糟糕的超参数或 buggy 的代码而失败；而是因为有人决定训练一个他们不需要的模型。所以，在您承诺训练并深入研究如何执行之前，您需要回答两个问题：为什么您要训练这个模型？您应该训练什么模型？没有明确的答案，您可能会浪费数月的算力和工程时间来构建世界已经拥有的东西，或者更糟的是，没有人需要的东西。
+
+让我们从"为什么"开始，因为不理解您的目的，您就无法对后续的任何事情做出连贯的决策。
+
+<Note title="关于本节" emoji="📍" variant="info">
+
+本节与本指南的其他部分不同：它更少关注实验和技术细节，更多关于战略规划。
+我们将带您了解决定是否需要从头开始训练以及构建什么模型的决策过程。
+如果您已经深思熟虑过您的"为什么"和"什么"，
+可以随意跳转到 ["每个大模型都从小规模 Ablation 开始"](#every-big-model-starts-with-a-small-ablation) 获取技术深度内容。
+但如果您不确定，在这里投入时间可能会在以后节省很多精力。
+</Note>
+
+### 为什么：没有人想回答的问题
+
+让我们直截了当地谈谈实践中发生的事情。有人在（如果幸运的话）获得 GPU 集群访问权限后——可能是通过研究资助，也可能是通过公司的闲置算力——思考过程大致是这样的："我们有 100 个 H100 运行三个月。让我们训练一个模型吧！"模型大小是随意选的，数据集是从现有资源中拼凑出来的。训练开始了。六个月后，在消耗完算力预算和团队士气后，生成的模型无人问津，因为没有人问过"为什么"。
+
+以下是您不应该训练模型的一些原因：
+
+<HtmlEmbed frameless src="/embeds/wrong-reasons.html" />
+
+"我们训练了自己的模型"的诱惑是强大的，但在投入大量时间和资源之前，问自己：**为什么我们需要训练这个模型？** 是有意义的。
+
+以下流程图指导了在开始大型预训练项目之前应该经历的思考过程。从技术角度来说，您基本上应该首先找出是否有现有的模型，您可以要么提示它，要么微调它来完成这项工作。
+
+<HtmlEmbed frameless src="/embeds/train-model-decision-flowchart.html" />
+
+<Sidenote>
+
+我们讨论的"为什么"是关于从头开始训练。我们在本指南中不涵盖蒸馏或剪枝。这些是通往高效模型的有效途径，但代表了与从头开始训练不同的工作流程。我们推荐 NVIDIA 的 <a href="https://arxiv.org/abs/2408.11796" target="_blank">Minitron 论文</a> 作为这些主题的概述。
+</Sidenote>
+
+基本上有三个常见领域，其中自定义预训练可能有意义：您想做新颖的研究，您有非常具体的生产用例需求，或者您想填补开源模型生态系统中的空白。让我们快速看看每一个。
+
+### 做什么：您需要什么样的模型？
+
+一旦您确定了训练的理由，下一个问题就是构建什么模型。做出这个决定需要了解当前可用的模型景观以及您的特定需求。关键考虑因素包括：
+
+- **模型大小**：更大的模型通常表现更好，但需要更多计算资源
+- **多语言需求**：您需要支持哪些语言？
+- **特定领域**：您需要专门的数学、代码或推理能力吗？
+- **许可证**：您需要商业使用的模型吗？
+
+### 怎么做：技术实现路径
+
+假设您决定训练自己的模型，最后一个问题是如何做到这一点。本指南的其余部分将深入涵盖：
+
+- **数据策划**：如何获取、清洗和策划训练数据
+- **架构选择**：如何为您的目标选择正确的模型架构
+- **训练策略**：如何运行有效的实验和消融研究
+- **基础设施**：如何设置和调试您的训练集群
+- **后训练**：如何通过 SFT、DPO 和模型合并来完善您的模型
+
+让我们开始吧！
