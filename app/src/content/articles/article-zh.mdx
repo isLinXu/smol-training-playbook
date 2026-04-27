@@ -2,7 +2,45 @@
 title: 'Smol 训练手册：<br/>构建世界级 LLM 的秘诀'
 subtitle: >-
   训练最先进语言模型背后的挑战、决策和混乱现实的实用之旅
-description: 'Smol 训练手册：构建世界级 LLM 的秘诀'
+description: >-
+  一份实用的 LLM 训练指南，涵盖从预训练到后训练的完整流程。
+  学习如何构建世界级语言模型，包括架构选择、数据策划、训练技巧和基础设施优化。
+  基于 SmolLM3 3B 模型的真实训练经验分享。
+keywords:
+  - LLM训练
+  - 大语言模型
+  - 预训练
+  - 后训练
+  - 模型架构
+  - 数据策划
+  - Hugging Face
+  - SmolLM3
+  - Transformer
+  - 深度学习
+  - 人工智能
+  - 机器学习
+  - 自然语言处理
+  - 模型微调
+  - 强化学习
+  - 注意力机制
+  - GPU训练
+  - 分布式训练
+  - 模型评估
+  - 基准测试
+ogTitle: 'Smol 训练手册：构建世界级 LLM 的秘诀'
+ogDescription: '从预训练到后训练的完整 LLM 训练指南，基于真实项目经验'
+ogImage: /thumb.png
+twitterCard: summary_large_image
+twitterTitle: 'Smol 训练手册：构建世界级 LLM 的秘诀'
+twitterDescription: '从预训练到后训练的完整 LLM 训练指南'
+twitterImage: /thumb.png
+lang: zh-CN
+alternateLang:
+  - href: /en/
+    hreflang: en
+  - href: /zh/
+    hreflang: zh-CN
+canonical: https://islinxu.github.io/smol-training-playbook/zh/
 authors:
   - name: Loubna Ben Allal
     url: 'https://huggingface.co/loubnabnl'
@@ -113,7 +151,7 @@ import FullWidth from '../../components/FullWidth.astro';
 
 ## 训练罗盘：为什么 → 做什么 → 怎么做
 
-<HtmlEmbed frameless src="/embeds/training-compass.html" />
+<HtmlEmbed frameless src="/embeds/training-compass-zh.html" />
 
 机器学习领域与优化有着痴迷的关系。我们专注于损失曲线、模型架构和吞吐量；毕竟，机器学习从根本上说是关于优化模型的损失函数。然而，在深入研究这些技术细节之前，有一个更基本的问题经常没有被问到：**我们甚至应该训练这个模型吗？**
 
@@ -144,13 +182,13 @@ import FullWidth from '../../components/FullWidth.astro';
 
 以下是一些你不应该训练模型的原因：
 
-<HtmlEmbed frameless src="/embeds/wrong-reasons.html" />
+<HtmlEmbed frameless src="/embeds/wrong-reasons-zh.html" />
 
 "我们训练了自己的模型"的诱惑很强大，但在投入大量时间和资源之前，有必要问：**为什么我们需要训练这个模型？**
 
 以下流程图指导在开始大型预训练项目之前应该经历的思考过程。从技术角度来看，你基本上应该首先查明是否有现有模型可以提示或微调来完成工作。
 
-<HtmlEmbed frameless src="/embeds/train-model-decision-flowchart.html" />
+<HtmlEmbed frameless src="/embeds/train-model-decision-flowchart-zh.html" />
 
 基本上有三个常见领域，自定义预训练可能有意义：你想做新颖的研究，你对生产用例有非常具体的需求，或者你想填补开放模型生态系统中的空白。让我们快速看看每一个。
 
