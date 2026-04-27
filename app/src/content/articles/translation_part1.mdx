@@ -1,0 +1,59 @@
+## 每个大模型都从小规模 Ablation 开始
+
+在开始训练 LLM 之前，我们需要做出许多决定，这些决定将影响模型的性能和训练效率。哪种架构最适合我们的用例？应该使用什么优化器和学习率调度器？应该混合哪些数据源？
+
+如何做出这些决定是一个经常被问到的问题。人们有时认为需要深思熟虑。虽然战略思维是必不可少的——正如我们在[上一节](#training-compass-why--what--how)中介绍的——但仅凭推理是不够的。对于 LLM 来说，事情并不总是直观的，关于什么应该有效的假设有时在实践中并不成立。
+
+例如，使用看似"最高质量的数据"并不总是能产生更强大的模型。以 [arXiv](https://arxiv.org/) 为例，它是人类科学知识的庞大集合。直观地说，在如此丰富的 STEM 数据上训练应该会产生更优越的模型，对吧？在实践中，它并没有，特别是对于较小的模型，它甚至可能损害性能。为什么？虽然 arXiv 论文充满了知识，但它们高度专业化，以狭窄的学术风格撰写，这与模型学习效果最好的多样化、通用文本截然不同。
+
+那么，如果盯着问题看很久也没有帮助，我们怎么知道什么有效呢？我们运行大量实验，就像优秀的经验主义者一样！机器学习不是纯数学，实际上是一门实验科学。
+
+<Scidenote>
+
+在许多方面，机器学习类似于统计力学发现之前的热力学：我们有可靠的实证定律和设计原则，即使更深层的理论解释仍在涌现，它们也能很好地工作。
+</Scidenote>
+
+由于这些实验将指导我们的许多关键决策，因此正确设置它们非常重要。我们基本上需要两个主要属性：
+
+1. **速度：** 它们应该尽可能快地运行，以便我们可以频繁迭代。我们可以运行的 Ablation 越多，我们可以测试的假设就越多。
+2. **可靠性：** 它们应该提供强大的区分能力。如果我们查看的指标不能及早有意义地区分不同的设置，我们的 Ablation 可能揭示很少（如果它们有噪声，我们就有追逐噪声的风险！）。更多细节，请查看我们关于将 FineWeb 扩展到 1000+ 语言的[博客文章](https://huggingface.co/spaces/HuggingFaceFW/blogpost-fine-tasks)。
+
+
+但在我们可以设置我们的 ablations 之前，我们需要关于架构类型和模型大小做出一些基本选择。这些决策——由我们的罗盘指导——影响使用哪个训练框架、如何分配我们的计算预算，以及从哪个基线开始。
+
+对于 SmolLM3，我们选择了 3B 参数的密集 Llama 风格架构，因为我们的目标是小型设备上模型。但正如您将在["设计模型架构，"](#designing-the-model-architecture) 中看到的，专家混合 (MoE) 或混合模型可能更适合您的用例，不同的模型大小会带来不同的权衡。我们将在后面深入探讨这些选择，并向您展示如何做出这些决定。现在，让我们从最实际的第一步开始：选择您的基线。
+
+### 选择您的基线
+
+每个成功的模型都构建在经过验证的基础上，并针对其需求进行修改。当 Qwen 训练他们的第一个模型家族时，他们从 Llama 的架构开始。当 Meta 训练 Llama 3 时，他们从 Llama 2 开始。Kimi K2 从 DeepSeek-V3 的 MoE 架构开始。这不仅适用于架构，也适用于训练超参数和优化器。
+
+为什么？设计好的架构和训练设置需要多年的跨多个组织的迭代。标准 Transformer 和 Adam 等优化器已经通过数千次实验进行了优化。人们已经发现了它们的故障模式，调试了不稳定性，优化了实现。从经过验证的基础开始意味着继承了所有那些积累的知识。从头开始意味着自己重新发现每个问题。
+
+为了获得一个好的起点，架构应该：
+
+- **匹配您的约束** ，与您的部署目标和用例保持一致
+- **在规模上得到验证** （在相似或更大大小的多万亿 tokens 运行中得到证明）
+- **有良好文档** ，具有已被证明在开放模型中有效的已知超参数
+- **有良好的框架支持** （理想情况下，它应该在您正在考虑的 training frameworks 和您计划使用的 inference frameworks 中得到支持）
+
+以下是撰写本文时（2026 年初）各种架构和模型大小的一些强大 2025 基线选项的非详尽列表：
+
+| 架构类型 | 模型家族 | 大小 |
+| --- | --- | --- |
+| **密集** | [Llama 3.1](https://huggingface.co/collections/meta-llama/llama-31-669fc079a0c406a149a5738f) | 8B, 70B |
+| **密集** | [Llama 3.2](https://huggingface.co/collections/meta-llama/llama-32-66f448ffc8c32f949b04c8cf) | 1B, 3B |
+| **密集** | [Qwen3](https://huggingface.co/collections/Qwen/qwen3-67dd247413f0e2e4f653967f) | 0.6B, 1.7B, 4B, 14B, 32B |
+| **密集** | [Gemma 3](https://huggingface.co/collections/google/gemma-3-release-67c6c6f89c4f76621268bb6d) | 12B, 27B |
+| **密集** | [SmolLM2](https://huggingface.co/collections/HuggingFaceTB/smollm2-6723884218bcda64b34d7db9), [SmolLM3](https://huggingface.co/HuggingFaceTB/SmolLM3-3B) | 135M, 360M, 1.7B, 3B |
+| **MoE** | [Qwen3 MoE](https://huggingface.co/collections/Qwen/qwen3-67dd247413f0e2e4f653967f) | 30B-A3B, 235B-A122B |
+| **MoE** | [gpt-oss](https://huggingface.co/collections/openai/gpt-oss-68911959590a1634ba11c7a4) | 21B-A3B, 117B-A5B |
+| **MoE** | [Kimi Moonlight](https://huggingface.co/moonshotai/Moonlight-16B-A3B-Instruct) | 16B-A3B |
+| **MoE** | [Kimi K2](https://huggingface.co/collections/moonshotai/kimi-k2-6871243b990f2af5ba60617d) | 1T-A32B |
+| **MoE** | [DeepSeek-V3](https://huggingface.co/deepseek-ai/DeepSeek-V3) | 671B-A37B |
+| **混合** | [Zamba2](https://huggingface.co/Zyphra/models?search=zamba2) | 1.2B, 2.7B, 7B |
+| **混合** | [Falcon-H1](https://huggingface.co/collections/tiiuae/falcon-h1-6819f2795bc406da60fab8df) | 0.5B, 1.5B, 3B, 7B, 34B |
+| **MoE + 混合** | [Qwen3-Next](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct) | 80B-A3B |
+| **MoE + 混合** | [MiniMax-01](https://huggingface.co/MiniMaxAI/MiniMax-Text-01) | 456B-A46B |
+| **MoE + 混合** | [MiMo-V2-Flash](https://huggingface.co/XiaomiMiMo/MiMo-V2-Flash) | 309B-A15B |
+
+找到您的架构类型，并选择一个与您希望模型具有的参数数量接近的基线。不要过度思考它，因为您开始的架构不是一成不变的。在下一节中，您将看到如何从一个基线到一个对您来说最优的最终架构。

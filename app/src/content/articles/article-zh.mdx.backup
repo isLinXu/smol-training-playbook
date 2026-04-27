@@ -1,0 +1,886 @@
+---
+title: '小语言模型训练手册：<br/> 构建世界级 LLMs 的秘密'
+subtitle: >-
+  一份基于训练 SmolLM3 真实经验的实践指南，
+  涵盖训练紧凑型语言模型的挑战、决策和真实经验
+description: '小语言模型训练手册：构建世界级 LLMs 的秘密'
+authors:
+  - name: Loubna Ben Allou
+    url: 'https://huggingface.co/loubnabnl'
+    affiliations:
+      - 1
+  - name: Lewis Tunstall
+    url: 'https://huggingface.co/lewtun'
+    affiliations:
+      - 1
+  - name: Nouamane Tazi
+    url: 'https://huggingface.co/nouamanetazi'
+    affiliations:
+      - 1
+  - name: Elie Bakouch
+    url: 'https://huggingface.co/eliebak'
+    affiliations:
+      - 1
+  - name: Ed Beeching
+    url: 'https://huggingface.co/edbeeching'
+    affiliations:
+      - 1
+  - name: Carlos Miguel Patiño
+    url: 'https://huggingface.co/cmpatino'
+    affiliations:
+      - 1
+  - name: Clémentine Fourrier
+    url: 'https://huggingface.co/clefourrier'
+    affiliations:
+      - 1
+  - name: Thibaud Frere
+    url: 'https://huggingface.co/tfrere'
+    affiliations:
+      - 1
+  - name: Anton Lozhkov
+    url: 'https://huggingface.co/anton-l'
+    affiliations:
+      - 1
+  - name: Colin Raffel
+    url: 'https://huggingface.co/craffel'
+    affiliations:
+      - 1
+  - name: Leandro von Werra
+    url: 'https://huggingface.co/lvwerra'
+    affiliations:
+      - 1
+  - name: Thomas Wolf
+    url: 'https://huggingface.co/thomwolf'
+    affiliations:
+      - 1
+affiliations:
+  - name: Hugging Face
+    url: 'https://huggingface.co'
+published: '2025年10月30日'
+tags:
+  - research-article-template
+  - scientific paper
+  - data visualization
+tableOfContentsAutoCollapse: true
+seoThumbImage: /thumb.png
+pdfProOnly: false
+---
+
+import Sidenote from '../../components/Sidenote.astro';
+import Note from '../../components/Note.astro';
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+
+## 简介
+
+训练高性能 LLM 实际上需要什么？
+
+<Sidenote>
+
+阅读时间：2-4天
+</Sidenote>
+
+发表的研究看起来很简单：战略性的架构选择、精心策划的数据集和充足的算力。结果经过精心打磨，Ablation 实验结构清晰、有条理。每一个决策都是事后才显得显而易见的。但这些报告只展示了有效的方法，并应用了一些事后诸葛的光环效应——它们并没有捕捉到凌晨2点的数据加载器调试会话、损失值突变，或者悄悄破坏训练的张量并行bug（见后文！）。现实更加混乱、更加迭代，充满了不会进入最终论文的决策。
+
+加入我们，一起深入了解 [SmolLM3](https://huggingface.co/HuggingFaceTB/SmolLM3-3B) 的训练过程——这是一个在 11T tokens 上训练的 30亿参数多语言推理模型。这不是一本普通的指南，而是一个解开迷宫般决策、发现和死胡同的过程，引导我们深入理解构建世界级语言模型的关键要素。
+
+这也是我们长篇模型训练系列的最终作品。我们已经完成了大规模数据集构建（[FineWeb](https://huggingface.co/spaces/HuggingFaceFW/blogpost-fineweb-v1)）、编排数千个 GPU 协调运行（[Ultra-Scale Playbook](https://huggingface.co/spaces/nanotron/ultrascale-playbook)），以及在每个步骤中选择最佳评估（[LLM Evaluation Guidebook](https://github.com/huggingface/evaluation-guidebook)）。现在我们将这一切整合起来，构建一个强大的 AI 模型。我们将带您完成整个旅程——不仅仅是最终有效的配方，还包括失败的基础设施故障和塑造每个决策的调试过程。您将看到有前景的小规模 Ablation 实验为何有时无法在规模上转化；为什么我们在 1T tokens 后重新启动训练运行；如何在保持强大英语语言性能的同时平衡多语言、数学和代码的竞争目标；以及最终如何训练混合推理模型。
+
+我们试图避免简单地列出我们所做的一切，而是呈现一个关于我们冒险经历的有组织的故事。把它想象成任何试图从"我们有一个很好的数据集和 GPU"到"我们构建了一个非常强大的模型"的人的指南。我们希望这种开放的态度能够帮助弥合研究和生产之间的差距，让您的下一次训练运行少一些混乱。
+
+### 如何阅读本指南
+
+您不需要从头到尾阅读整个指南，而且按照目前的长度来看，实际上也不可能一次坐下来从头到尾读完。它被分成几个不同的部分，任何部分都可以跳过或单独阅读：
+
+- **训练罗盘：** 关于是否应该预训练自己的模型的高层讨论。我们将带您了解在烧光所有风险投资之前应该问自己的基本问题，以及如何系统地思考决策过程。这是一个高层部分；如果您想直接跳到技术内容，可以这样做。
+- **预训练：** 训练罗盘之后的章节涵盖了为您自己的预训练运行构建可靠配方所需的一切知识：如何运行 Ablation、选择评估、混合数据源、做架构选择、调整超参数，最后完成训练马拉松。如果您不打算从头开始预训练，但对继续预训练（也称为中间训练）感兴趣，这部分也很相关。
+- **后训练：** 在本指南的这一部分，您将学习从预训练模型中获得最大收益所需的所有技巧。我们将涵盖整个后训练字母表，从 SFT、DPO 和 GRPO 开始，到模型合并的黑魔法和炼金术。使这些算法良好运行的大部分知识是通过痛苦的教训学到的，我们将在这里分享我们的经验，希望能让您免除一些痛苦。
+- **基础设施：** 如果预训练是蛋糕，后训练是糖霜和樱桃，那么基础设施就是工业级烤箱。没有它，什么都不会发生，如果它坏了，您的周日烘焙愉快时光就会变成火灾隐患。关于如何理解、分析和调试 GPU 集群的知识分散在互联网上的各个库、文档和论坛中。本节将介绍 GPU 布局、CPU/GPU/节点/存储之间的通信模式，以及如何识别和克服瓶颈。
+
+那么我们从哪里开始呢？选择您最感兴趣的部分，开始吧！
+
+<Sidenote>
+
+如果您有问题或意见，请在 [社区标签页](https://huggingface.co/spaces/HuggingFaceTB/smol-training-playbook/discussions) 上开启讨论！
+</Sidenote>
+
+## 训练罗盘：为什么 → 做什么 → 怎么做
+
+<HtmlEmbed frameless src="/embeds/training-compass.html" />
+
+机器学习领域与优化有着痴迷的关系。我们痴迷于损失曲线、模型架构和吞吐量；毕竟，机器学习从根本上来说就是优化模型的损失函数。但在深入这些技术细节之前，有一个更基本的问题经常被忽视：我们真的应该训练这个模型吗？
+
+如下图所示，开源 AI 生态系统几乎每天都会发布世界级模型：Qwen、Gemma、DeepSeek、Kimi、Llama 🪦、OLMo，这个列表每月都在增长。这些不仅仅是研究原型或玩具示例：它们是生产级模型，覆盖了令人惊讶的广泛用例，从多语言理解到代码生成和推理。它们大多数采用宽松的许可证，并有活跃的社区随时为您提供帮助。
+
+<iframe class="card card--p0" frameborder="0" width="100%" height="600px" src="https://cfahlgren1-model-release-heatmap.hf.space/"/>
+
+这就提出了一个不争的事实：也许你不需要训练自己的模型。
+
+这似乎是开始"LLM 训练指南"的奇怪方式。但许多失败的训练项目并非因为糟糕的超参数或 buggy 的代码而失败；而是因为有人决定训练一个他们不需要的模型。所以，在您承诺训练并深入研究如何执行之前，您需要回答两个问题：为什么您要训练这个模型？您应该训练什么模型？没有明确的答案，您可能会浪费数月的算力和工程时间来构建世界已经拥有的东西，或者更糟的是，没有人需要的东西。
+
+让我们从"为什么"开始，因为不理解您的目的，您就无法对后续的任何事情做出连贯的决策。
+
+<Note title="关于本节" emoji="📍" variant="info">
+
+本节与本指南的其他部分不同：它更少关注实验和技术细节，更多关于战略规划。
+我们将带您了解决定是否需要从头开始训练以及构建什么模型的决策过程。
+如果您已经深思熟虑过您的"为什么"和"什么"，
+可以随意跳转到 ["每个大模型都从小规模 Ablation 开始"](#every-big-model-starts-with-a-small-ablation) 获取技术深度内容。
+但如果您不确定，在这里投入时间可能会在以后节省很多精力。
+</Note>
+
+### 为什么：没有人想回答的问题
+
+让我们直截了当地谈谈实践中发生的事情。有人在（如果幸运的话）获得 GPU 集群访问权限后——可能是通过研究资助，也可能是通过公司的闲置算力——思考过程大致是这样的："我们有 100 个 H100 运行三个月。让我们训练一个模型吧！"模型大小是随意选的，数据集是从现有资源中拼凑出来的。训练开始了。六个月后，在消耗完算力预算和团队士气后，生成的模型无人问津，因为没有人问过"为什么"。
+
+以下是您不应该训练模型的一些原因：
+
+<HtmlEmbed frameless src="/embeds/wrong-reasons.html" />
+
+"我们训练了自己的模型"的诱惑是强大的，但在投入大量时间和资源之前，问自己：**为什么我们需要训练这个模型？** 是有意义的。
+
+以下流程图指导了在开始大型预训练项目之前应该经历的思考过程。从技术角度来说，您基本上应该首先找出是否有现有的模型，您可以要么提示它，要么微调它来完成这项工作。
+
+<HtmlEmbed frameless src="/embeds/train-model-decision-flowchart.html" />
+
+<Sidenote>
+
+我们讨论的"为什么"是关于从头开始训练。我们在本指南中不涵盖蒸馏或剪枝。这些是通往高效模型的有效途径，但代表了与从头开始训练不同的工作流程。我们推荐 NVIDIA 的 <a href="https://arxiv.org/abs/2408.11796" target="_blank">Minitron 论文</a> 作为这些主题的概述。
+</Sidenote>
+
+基本上，自定义预训练在三个常见领域有意义：您想进行新颖的研究，您对生产用例有非常具体的要求，或者您想填补开放模型生态系统中的空白。让我们快速看看每一个。
+
+#### **研究：您想理解什么？**
+
+在 LLM 领域可以做很多研究。LLM 研究项目的共同点是您通常从一个明确定义的问题开始：
+
+- 我们可以在这个新优化器上将训练扩展到 10B+ 模型吗？（参见 ["Muon 可扩展用于 LLM 训练。"](https://huggingface.co/papers/2502.16982))
+- 仅通过强化学习，没有监督微调 (SFT)，能产生推理能力吗？（参见 ["DeepSeek-R1：通过强化学习激励 LLMs 中的推理能力。"](https://huggingface.co/papers/2501.12948))
+- 我们可以在纯合成教科书数据上训练好的小模型吗？（参见 ["Textbooks Are All You Need。"](https://huggingface.co/papers/2306.11644))
+- 我们可以通过仅在公开许可数据上训练来实现有竞争力的性能吗？（参见 ["The Common Pile v0.1：一个 8TB 的公共领域和开放许可文本数据集。"](https://huggingface.co/papers/2506.05209))
+
+使假设尽可能具体并思考必要的实验规模会增加成功的机会。
+
+#### **生产：为什么不能使用现有模型？**
+
+公司不能将现成模型用于其用例，主要有三个原因。其中两个是技术性的，另一个是由于治理。
+
+训练自己模型的第一个原因是 **领域特定性**：当您的数据或任务涉及现有模型无法很好处理的高度专业化词汇表或结构。例如，您可能想训练：
+
+- 具有独特词汇表和长距离依赖关系的 DNA 模型
+- 需要深入了解领域特定术语和逻辑的法律或金融模型
+
+第二个相关原因是 **部署约束**：当您需要针对硬件、延迟或隐私要求量身定制的模型时。这里的例子可能是在无人机上运行的 LLM 或具有定制硬件（如 FPGA）的本地部署系统。
+
+这是一个简单的测试：在使用 Qwen3、Gemma 3 或另一个当前最先进 (SOTA) 模型的基础上花几天时间。您能否通过提示、工具使用或后训练达到性能目标？如果不能，那么可能是时候训练您自己的了。
+
+即使满足您要求的后训练预算很大，它可能仍然比从头开始便宜。为 1T tokens 微调模型比从头开始训练 10T+ tokens 更经济。
+
+<Sidenote>
+
+在这一点上，LLM 训练者开始奇迹般地称之为 mid-training
+而不是 post-training。
+
+</Sidenote>
+
+建立自己内部语言模型的第三个原因是 **安全和治理**：您需要完全控制训练数据、模型行为和更新周期，因为您处于受监管的行业中或高风险应用中。您需要 *确切地* 知道模型中投入了什么，并能够向监管机构证明其合理性。在某些情况下，您可能别无选择，只能构建自己的模型。
+
+这些是公司训练内部模型的主要原因——但是发布开放模型的公司或组织呢？
+
+#### **战略开源：您看到可以填补的空白吗？**
+
+经验丰富的 AI 实验室发布新开放模型最常见的原因之一是他们已经确定了开放源发生态系统中的特定空白或新 AI 用例。
+
+模式通常看起来像这样：您注意到一个未被充分探索的领域——也许没有具有非常长上下文的强大设备上模型，或者存在多语言模型但它们在低资源语言上很弱，或者该领域正在向像 [Genie 3](https://deepmind.google/discover/blog/genie-3-a-new-frontier-for-world-models/) 这样的交互式世界模型发展，并且不存在好的开放权重模型。
+
+您有理由相信您可以做得更好；也许您策划了更好的训练数据，开发了更好的训练配方，或者拥有其他人在无法进行过度训练的计算能力。您的目标是具体的：不是"有史以来最好的模型"，而是"用于设备上使用的最好的 3B 模型"或"第一个具有 1M-token 上下文窗口的小模型"。
+
+这是一个真正的目标，成功创造价值：开发人员采用您的模型，它成为他人的基础设施，或者它建立了技术信誉。但成功需要经验。您需要知道什么是真正可行的，以及如何在竞争激烈的空间中可靠地执行。为了具体化，让我们看看我们在 Hugging Face 是如何思考这个问题的。
+
+#### **Hugging Face 的旅程**
+
+那么为什么 Hugging Face 要训练开放模型呢？答案很简单：我们构建对开放源发生态系统有用的东西，并填补很少有人正在填补的空白。
+
+<Sidenote>
+
+虽然有数百万个开放权重模型，但很少有组织训练完全开放的模型。除了 Hugging Face，还有 [Ai2](https://allenai.org/) 和 [Stanford's Marin community](https://marin.community/)。
+
+</Sidenote>
+
+这包括数据集、工具化和训练模型。我们开始的每个 LLM 训练项目都始于注意到一个空白，并相信我们可以贡献有意义的东西。
+
+在 GPT-3 [[@gpt3](https://huggingface.co/papers/2005.14165)] 发布后，我们开始了我们的第一个 LLM 项目。当时，感觉没有其他人在构建开放替代品，我们担心知识最终会锁定在少数行业实验室中。所以我们推出了 [BigScience 研讨会](https://bigscience.huggingface.co/) 来训练 GPT-3 的开放版本。由此产生的模型是 [BLOOM](https://huggingface.co/bigscience/bloom)，由数十名贡献者创建，他们工作了一年来构建训练堆栈、分词器和预训练语料库，以预训练一个 175B 参数模型。
+
+BLOOM 的继任者是 StarCoder，在 2022 年 [[@starcoder](https://huggingface.co/papers/2305.06161)]。OpenAI 为 GitHub Copilot 开发了 Codex [[@codex](https://huggingface.co/papers/2107.03374)]，但它是闭源的。构建一个开源替代品显然会为生态系统提供价值。因此，在与 ServiceNow 的合作下，在 [BigCode](https://huggingface.co/bigcode) 保护伞下，我们构建了 [The Stack](https://huggingface.co/datasets/bigcode/the-stack) 数据集，并且我们训练了 [StarCoder 15B](https://huggingface.co/bigcode/starcoder) 来重现 Codex。[StarCoder2](https://huggingface.co/collections/bigcode/starcoder2-65de6da6e87db3383572be1a) [[@starcoder2](https://huggingface.co/papers/2402.19173)] 来自于我们可以训练更久的学习，并认识到训练更久的小模型可能比一个大模型更有价值。我们在一个多万亿 tokens 上训练了一个系列 (3B/7B/15B)，远超当时任何人为开放代码模型所做的工作。
+
+[SmolLM 家族](https://huggingface.co/HuggingFaceTB) 遵循类似的模式。我们注意到非常缺少强大的小模型，并且我们刚刚构建了 [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu) [@fineweb]，这是一个强大的预训练数据集。[SmolLM](https://huggingface.co/collections/HuggingFaceTB/smollm-6695016cad7167254ce15966) (135M/360M/1.7B) 是我们的第一个版本。[SmolLM2](https://huggingface.co/collections/HuggingFaceTB/smollm2-6723884218bcda64b34d7db9) [@smollm2] 专注于更好的数据和更长的训练，在多个战线上达到 SOTA 性能。[SmolLM3](https://huggingface.co/HuggingFaceTB/SmolLM3-3B) 扩展到 3B 参数，同时添加了混合推理、多语言性和长上下文，这些是社区在 2026 年重视的功能。
+
+这种模式扩展到预训练之外：我们训练了 [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-alpha) [@zephyr] 来展示直接偏好优化 (DPO) 在规模上工作，启动了 [Open-R1](https://github.com/huggingface/open-r1) 来重现 DeepSeek-R1 的蒸馏管道，并发布了 [OlympicCoder](https://huggingface.co/open-r1/OlympicCoder-7B) 用于竞技编程，在国际信息学奥林匹克中具有 SOTA 性能。我们还通过 [SmolVLM](https://huggingface.co/collections/HuggingFaceTB/smolvlm-6740bd584b2dcbf51ecb1f39) [@smolvlm] 用于视觉和 [SmolVLA](https://huggingface.co/lerobot/smolvla_base) [@smolvla] 用于机器人技术，探索了其他模态。
+
+<Sidenote>
+
+如果您对我们的 HF 科学项目感到好奇，
+您可以在 <a href="https://huggingface.co/science" target="_blank">https://huggingface.co/science</a> 找到概述
+
+</Sidenote>
+
+希望本节已说服您，深入思考为什么要训练模型是有价值的。
+
+对于本指南的其余部分，我们假定您已完成这种灵魂搜索，并有合法的理由进行训练。
+
+### 做什么：将目标转化为决策
+
+现在您知道 *为什么* 要训练，*应该*训练什么？通过"什么"，我们指的是模型类型（密集、专家混合、混合、新东西）、模型大小、架构细节和数据混合。一旦您确定了为什么，就可以推导出是什么。例如：
+
+- 用于设备上的快速模型 → 小型高效模型
+- 多语言模型 → 大分词器词汇表
+- 超长上下文 → 混合架构
+
+除了用例驱动的决策外，还有一些选择可以通过更稳定、更有效或更快速来优化训练本身。这些决策并不总是那么明确，但您可以将决策过程大致分为以下阶段：
+
+- **规划：** 在运行实验之前，将您的用例映射到您需要决定的组件。您的部署环境决定了模型大小的约束。您的时间表决定了您可以承担哪些架构风险。您的目标能力决定了数据集要求。此阶段是关于将"为什么"中的每个约束连接到"什么"中的具体规范。
+- **验证：** 一旦您有了起点和潜在修改列表，请系统地进行测试。由于测试很昂贵，请专注于可能对您的用例的性能或优化训练产生有意义的变化。这就是 ablations 的用武之地，在 ["每个大模型都从小规模 Ablation 开始，"](#every-big-model-starts-with-a-small-ablation) 中介绍。
+
+<Note title="学会识别什么是值得测试的，而不仅仅是如何运行测试。" emoji="📍" variant="info">
+
+对不相关选择的完美 ablations 与对重要选择的草率 ablations 一样浪费计算。
+
+</Note>
+
+在接下来的章节中，您将了解定义模型的所有选项，以及如何通过系统实验缩小选择范围。在去那里之前，我们想分享一些我们从训练自己的模型以及观察其他构建伟大 LLMs 的出色团队中获得的关于如何建立团队和项目的经验。
+
+### 超级力量：速度和数据
+
+当然，有很多方法可以到达罗马，但我们发现，成功的 LLM 培训团队的一致区别在于 *迭代速度*。训练 LLMs 确实是一种边做边学的学科：您训练得越频繁，您的团队就会变得越好。因此，在每年训练一个模型的团队和每季度训练一个模型的团队之间，后者将改善得更快。您可以查看 Qwen 和 DeepSeek 的团队获取示例。现在家喻户晓的名字，他们拥有在快速节奏上持续发布新模型的长期记录。
+
+除了迭代速度之外，迄今为止 LLM 训练中最有影响力的方面是 *数据策划*。有一种自然的趋势潜入架构选择以改善模型，但擅长 LLM 训练的团队是那些对高质量数据比其他任何事情都痴迷的团队。
+
+与迭代速度相关的另一个方面是 *团队规模*。对于主要的预训练任务，您只需要少数配备足够计算来执行的人。今天要预训练像 Llama 3 这样的模型，您可能只需要两到三个人。一旦您开始冒险进入更多不同的训练以及下游任务（多模态、多语言、后训练等），您将需要增加几个人在每个领域表现出色。
+
+因此，从一个小而装备精良的团队开始，每两到三个月构建一个新模型，并在短时间内您将爬到顶峰。本指南的其余部分将重点关注该团队的日常技术活动！
+
+## 每个大模型都从小规模 Ablation 开始
+
+在开始训练 LLM 之前，我们需要做出许多决定，这些决定将影响模型的性能和训练效率。哪种架构最适合我们的用例？应该使用什么优化器和学习率调度器？应该混合哪些数据源？
+
+如何做出这些决定是一个经常被问到的问题。人们有时期望它们需要深思熟虑。虽然战略思维是必不可少的——正如我们在[上一节](#training-compass-why--what--how)中介绍的——但仅凭推理是不够的。对于 LLM 来说，事情并不总是直观的，关于什么应该有效的假设有时在实践中并不成立。
+
+例如，使用看似"最高质量的数据"并不总是能产生更强大的模型。以 [arXiv](https://arxiv.org/) 为例，它是人类科学知识的庞大集合。直观地说，在如此丰富的 STEM 数据上训练应该会产生更优越的模型，对吧？在实践中，它并没有，特别是对于较小的模型，它甚至可能损害性能。为什么？虽然 arXiv 论文充满了知识，但它们高度专业化，以狭窄的学术风格撰写，这与模型学习效果最好的多样化、通用文本截然不同。
+
+那么，如果盯着问题看很久也没有帮助，我们怎么知道什么有效呢？我们运行大量实验，就像优秀的经验主义者一样！机器学习不是纯数学，实际上是一门实验科学。
+
+<Sidenote>
+
+在许多方面，机器学习类似于统计力学发现之前的热力学：我们有可靠的实证定律和设计原则，即使更深层的理论解释仍在涌现，它们也能很好地工作。
+</Sidenote>
+
+由于这些实验将指导我们的许多关键决策，因此正确设置它们非常重要。我们基本上需要两个主要属性：
+
+1. **速度：** 它们应该尽可能快地运行，以便我们可以频繁迭代。我们可以运行的 Ablation 越多，我们可以测试的假设就越多。
+1. **可靠性：** 它们应该提供强大的区分能力。如果我们查看的指标不能及早有意义地区分不同的设置，我们的 Ablation 可能揭示很少（如果它们有噪声，我们就有追逐噪声的风险！）。
+
+<HtmlEmbed src="/embeds/parameter-calculator.html" />
+
+在设置我们的 Ablation 之前，我们需要关于架构类型和模型大小做出一些基本选择。这些决策——由我们的罗盘指导——影响使用哪个训练框架、如何分配我们的计算预算，以及从哪个基线开始。
+
+对于 SmolLM3，我们选择了 3B 参数的密集 Llama 风格架构，因为我们的目标是小型设备上模型。但正如您将在["设计模型架构，"](#designing-the-model-architecture) 中看到的，专家混合 (MoE) 或混合模型可能更适合您的用例，不同的模型大小会带来不同的权衡。我们将在后面深入探讨这些选择，并向您展示如何做出这些决定。现在，让我们从最实际的第一步开始：选择您的基线。
+
+### 选择您的基线
+
+每个成功的模型都构建在经过验证的基础上，并针对其需求进行修改。当 Qwen 训练他们的第一个模型家族 [@qwen1] 时，他们从 Llama 的架构开始。当 Meta 训练 Llama 3 时，他们从 Llama 2 开始。Kimi K2 从 DeepSeek-V3 的 MoE 架构开始。这不仅适用于架构，也适用于训练超参数和优化器。
+
+为什么？设计好的架构和训练设置需要多年的跨多个组织的迭代。标准 Transformer 和 Adam 等优化器已经通过数千次实验进行了优化。人们已经发现了它们的故障模式，调试了不稳定性，优化了实现。从经过验证的基础开始意味着继承了所有那些积累的知识。从头开始意味着自己重新发现每个问题。
+
+为了获得一个好的起点，架构应该：
+
+- **匹配您的约束** ，与您的部署目标和用例保持一致
+- **在规模上得到验证** （在相似或更大大小的多万亿 tokens 运行中得到证明）
+- **有良好文档** ，具有已被证明在开放模型中有效的已知超参数
+- **有良好的框架支持** （理想情况下，它应该在您正在考虑的 training frameworks 和您计划使用的 inference frameworks 中得到支持）
+
+以下是撰写本文时（2026 年初）各种架构和模型大小的一些强大 2025 基线选项的非详尽列表：
+
+| 架构类型 | 模型家族 | 大小 |
+| --- | --- | --- |
+| **密集** | [Llama 3.1](https://huggingface.co/collections/meta-llama/llama-31-669fc079a0c406a149a5738f) | 8B, 70B |
+| **密集** | [Llama 3.2](https://huggingface.co/collections/meta-llama/llama-32-66f448ffc8c32f949b04c8cf) | 1B, 3B |
+| **密集** | [Qwen3](https://huggingface.co/collections/Qwen/qwen3-67dd247413f0e2e4f653967f) | 0.6B, 1.7B, 4B, 14B, 32B |
+| **密集** | [Gemma 3](https://huggingface.co/collections/google/gemma-3-release-67c6c6f89c4f76621268bb6d) | 12B, 27B |
+| **密集** | [SmolLM2](https://huggingface.co/collections/HuggingFaceTB/smollm2-6723884218bcda64b34d7db9), [SmolLM3](https://huggingface.co/HuggingFaceTB/SmolLM3-3B) | 135M, 360M, 1.7B, 3B |
+| **MoE** | [Qwen3 MoE](https://huggingface.co/collections/Qwen/qwen3-67dd247413f0e2e4f653967f) | 30B-A3B, 235B-A122B |
+| **MoE** | [gpt-oss](https://huggingface.co/collections/openai/gpt-oss-68911959590a1634ba11c7a4) | 21B-A3B, 117B-A5B |
+| **MoE** | [Kimi Moonlight](https://huggingface.co/moonshotai/Moonlight-16B-A3B-Instruct) | 16B-A3B |
+| **MoE** | [Kimi K2](https://huggingface.co/collections/moonshotai/kimi-k2-6871243b990f2af5ba60617d) | 1T-A32B |
+| **MoE** | [DeepSeek-V3](https://huggingface.co/deepseek-ai/DeepSeek-V3) | 671B-A37B |
+| **混合** | [Zamba2](https://huggingface.co/Zyphra/models?search=zamba2) | 1.2B, 2.7B, 7B |
+| **混合** | [Falcon-H1](https://huggingface.co/collections/tiiuae/falcon-h1-6819f2795bc406da60fab8df) | 0.5B, 1.5B, 3B, 7B, 34B |
+| **MoE + 混合** | [Qwen3-Next](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct) | 80B-A3B |
+| **MoE + 混合** | [MiniMax-01](https://huggingface.co/MiniMaxAI/MiniMax-Text-01) | 456B-A46B |
+| **MoE + 混合** | [MiMo-V2-Flash](https://huggingface.co/XiaomiMiMo/MiMo-V2-Flash) | 309B-A15B |
+
+找到您的架构类型，并选择一个与您希望模型具有的参数数量接近的基线。不要过度思考它，因为您开始的架构不是一成不变的。在下一节中，您将看到如何从一个基线到一个对您来说最优的最终架构。
+
+### 修改您的基线：降低风险的纪律
+
+您现在有一个有效的基线，适合您的用例。您可以在这里停下来，训练它，并且（假设您的数据混合良好）可能会得到一个不错的模型。许多成功的项目正是这样做的。但基线并没有针对您的特定约束进行优化；它们是为构建它们的人的用例和部署目标设计的。这意味着可能有一些修改值得做，以更好地与您的目标对齐。然而，每个架构变更都带有风险：它可能会提升性能，降低性能，或者什么都不做，同时浪费您的 Ablation 计算资源。
+
+让您保持正轨的纪律是*降低风险*：除非您已经测试过它有帮助，否则永远不要改变任何东西。
+
+<Note title="什么算是降低了风险？" emoji="📍" variant="info">
+
+当测试表明某项更改要么提高了目标能力的性能，要么提供了有意义的收益（例如，更快的推理、更低的内存、更好的稳定性），而没有将性能损害到可接受的范围之外时，该更改就降低了风险。
+</Note>
+
+棘手的部分是您的基线和训练设置有许多组件可以修改：注意力机制、位置编码、激活函数、优化器、训练超参数、归一化方案、模型布局等等。每一个都代表一个潜在的实验，这些组件经常以非线性方式相互作用。您既没有时间也没有计算能力来测试一切或探索每一个相互作用。
+
+所以，从针对您当前基线测试有前途的更改开始。当某些东西工作时，将其集成以创建一个新的基线，然后针对该基线测试下一个更改。如果您的计算预算允许，您可以单独测试更改并运行留一法分析。不要陷入对每个人超参数或测试每个出现的架构变体进行详尽网格搜索的陷阱。
+
+<Sidenote>
+
+查看 ScaleRL 论文 [@scalerl] 了解这种方法在实践中的示例。
+</Sidenote>
+
+<Note title="战略实验" emoji="🎯" variant="success">
+
+知道如何运行实验是不够的；您需要知道哪些实验值得运行。
+在测试任何修改之前问自己两个问题：
+- 这会帮助我的特定用例吗？
+- 这会优化我的训练吗？
+
+如果修改不能清楚地解决任何一个目标，请跳过它。
+</Note>
+
+现在您知道如何通过战略规划识别有前途的东西，是时候继续实证验证了。在接下来的部分中，我们将向您展示如何在实践中实际测试这些更改。我们将涵盖如何设置可靠的实验、解释结果以及避免常见的陷阱。然后，在接下来的章节中，我们将逐步介绍测试流行架构、数据、基础设施和训练决策的具体示例。
+
+### 选择训练框架
+
+我们需要做出的第一个决定是使用哪个框架来训练我们的模型，以及扩展地说，运行我们所有的 ablations。
+
+<Sidenote>
+
+不要成为英雄，在 ablations 和最终运行之间切换训练框架。那是通往痛苦的道路。
+</Sidenote>
+
+这个选择涉及平衡三个关键考虑因素：
+
+1. 框架必须支持我们的目标架构，或者让我们轻松扩展它。
+2. 它需要稳定且生产就绪，并且不会在训练中途神秘地崩溃。
+3. 它应该提供强大的吞吐量，这样我们就可以快速迭代并充分利用我们的计算预算。
+
+在实践中，这些要求可能会相互矛盾，产生权衡。让我们看看一些可用的选项：
+
+<Wide>
+
+| 框架 | 特点 | 生产验证 | 优化程度 | 代码量（核心/总计） | 扩展性与调试 |
+| --- | --- | --- | --- | --- | --- |
+| **Megatron-LM** | ✅ 功能丰富 | ✅ Kimi K2, Nemotron | ✅ 3D并行先驱 | 93k / 269k | ⚠️ 初学者较难 |
+| **DeepSpeed** | ✅ 功能丰富 | ✅ BLOOM, GLM | ✅ ZeRO & 3D并行 | 94k / 194k | ⚠️ 初学者较难 |
+| **TorchTitan** | ⚡ 功能增长中 | ⚠️ 较新但经 PyTorch 团队测试 | ⚡ 密集模型优化 | 7k / 9k | ⚡ 需要并行知识 |
+| **Nanotron** | 🎯 最小化，专为 HF 预训练定制 | ✅ 是（StarCoder, SmolLM） | ✅ 优化（Ultra-Scale Playbook） | 15k / 66k | ⚡ 需要并行知识 |
+
+</Wide>
+
+此表总结了流行框架之间的关键权衡。前三个框架的代码行数来自 TorchTitan 技术报告 [@torchtitan]。让我们更详细地讨论每一个：
+
+- NVIDIA 的 [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) 已经存在多年，并且经过了实战测试。它驱动了像 Kimi 的 K2 [@kimik2] 这样的模型；它提供了坚实的吞吐量和我们想要的大多数生产功能。但这种成熟度伴随着复杂性：当您是新手时，代码库可能很难导航和修改。
+- [DeepSpeed](https://github.com/deepspeedai/DeepSpeed) 属于类似类别。它是 ZeRO 优化的先驱，并驱动了 BLOOM 和 GLM 等模型。像 Megatron-LM 一样，它经过了广泛的实战测试和优化，但它共享相同的复杂性挑战。大型代码库（总计 194k 行）在您刚开始时可能令人生畏，特别是对于实现自定义功能或调试意外行为。
+- 另一方面，PyTorch 最近的 [TorchTitan](https://github.com/pytorch/torchtitan) 库由于其紧凑和模块化的代码库而更加轻量和易于导航。它具有预训练所需的核心功能，并且非常适合快速实验。然而，由于较新，它没有经过那么多的实战测试，并且可能仍然有点不稳定，因为它正在积极开发。
+- [Nanotron](https://github.com/huggingface/nanotron) 是我们从头开始构建的框架。这给了我们完全的灵活性，并深入了解了大规模预训练——这些见解后来演变成了 [Ultra-Scale Playbook](https://huggingface.co/spaces/nanotron/ultrascale-playbook)。由于我们将库开源，我们也从社区获得了宝贵的反馈，尽管在大多数情况下，我们不得不首先自己实战测试功能。该框架现在支持我们训练所需的所有生产功能，但我们仍在构建像 MoE 支持这样的领域。
+
+从头开始构建在我们的情况下是有意义的，但它需要在团队专业知识和调试问题以及添加缺失功能的时间方面进行重大投资。一个强大的替代方案是 fork 现有框架并根据您的需要增强它。例如，Thinking Machines Lab 将他们的内部预训练库构建为 [TorchTitan 的一个 fork](https://x.com/cHHillee/status/1949470943291805832)。
+
+最终，您的选择将取决于您团队的专业知识、您的目标功能，以及您愿意在开发 versus 使用最生产就绪的选项方面投入多少时间。
+
+如果多个框架支持您的需求，请在您的特定硬件上比较它们的吞吐量。对于快速实验和速度运行，更简单的代码库通常获胜。
+
+### Ablation 设置
+
+选择了框架后，我们现在需要设计我们的 ablation 设置。我们需要足够快的实验来快速迭代，但又足够大，以便结果给我们信号并转移到最终模型。
+
+#### 设置我们的 Ablation 框架
+
+Ablations 的目标是在小规模上运行实验，并获得我们可以自信地外推到我们最终生产运行的结果。
+
+有两种主要方法。首先，我们可以采用我们的目标模型大小，并在更少的 tokens 上训练它。对于 SmolLM3 ablations，我们在 100B tokens 上训练完整的 3B 模型，而不是最终的 11T。其次，如果我们的目标模型太大，我们可以训练一个更小的代理模型进行 ablations。例如，当 Kimi 开发他们具有 32B 活跃参数的 1T 参数 K2 模型时，对所有 ablations 使用完整大小将非常昂贵，所以他们在一个具有 0.5B 活跃参数的 3B MoE 上运行了一些 ablations [@kimik2]。
+
+一个关键问题是这些小规模发现是否真的转移。根据我们的经验，如果某些东西在小规模上损害了性能，您可以自信地将其排除在大规模之外。但如果某些东西在小规模上工作，您需要确保在合理数量的 tokens 上进行了训练，以便以高概率得出结论，这些发现将外推到更大规模。您训练的时间越长，ablation 模型越接近最终模型，就越好。
+
+我们决定在所有 ablations 中使用基线 vanilla transformer。我们的主要设置是遵循 [Llama 3.2 1B](https://huggingface.co/meta-llama/Llama-3.2-1B) 架构的 1B transformer，在 45B tokens 上训练。使用 [此](https://huggingface.co/datasets/HuggingFaceTB/training-guide-nanotron-configs/blob/main/baseline_config_1B.yaml) Nanotron 配置（每 GPU 每秒 42k tokens），在八个 H100s 的节点上训练大约需要一天半。
+
+<Sidenote>
+
+我们训练 45B tokens 以确保获得稳定信号，尽管此模型大小的 <a href="https://arxiv.org/abs/2203.15556" target="_blank">Chinchilla-optimal</a> 大约是 ~35B。
+
+</Sidenote>
+
+我们的基线 1B 配置以结构化 YAML 格式捕获了所有基本的训练细节。以下是关键部分：
+
+### 修改基线：降低风险的纪律
+
+您现在有一个有效的基线，适合您的用例。您可以在这里停下来，训练它，并且（假设您的数据混合良好）可能会得到一个不错的模型。许多成功的项目正是这样做的。但基线并没有针对您的特定约束进行优化；它们是为构建它们的人的用例和部署目标设计的。这意味着可能有一些修改值得做，以更好地与您的目标对齐。然而，每个架构变更都带有风险：它可能会提升性能，降低性能，或者什么都不做，同时浪费您的 Ablation 计算资源。
+
+让您保持正轨的纪律是*降低风险*：除非您已经测试过它有帮助，否则永远不要改变任何东西。
+
+<Note title="什么算是降低了风险？" emoji="📍" variant="info">
+
+当测试表明某项更改要么提高了目标能力的性能，要么提供了有意义的收益（例如，更快的推理、更低的内存、更好的稳定性），而没有将性能损害到可接受的范围之外时，该更改就降低了风险。
+</Note>
+
+### 选择训练框架
+
+选择训练框架是另一个关键决策。流行的选项包括：
+
+| 框架 | 特点 | 生产验证 | 优化程度 | 代码量 | 扩展性 |
+|------|------|----------|----------|--------|--------|
+| **Megatron-LM** | 功能丰富 | ✅ Kimi K2, Nemotron | ✅ 3D并行先驱 | 93k/269k | ⚠️ 初学者较难 |
+| **DeepSpeed** | 功能丰富 | ✅ BLOOM, GLM | ✅ ZeRO & 3D并行 | 94k/194k | ⚠️ 初学者较难 |
+| **TorchTitan** | 功能 growing | ⚠️ PyTorch团队测试 | ⚡ 密集模型优化 | 7k/9k | ⚡ 需要并行知识 |
+| **Nanotron** | 最小化定制 | ✅ StarCoder, SmolLM | ✅ 优化良好 | 15k/66k | ⚡ 需要并行知识 |
+
+选择框架时需要考虑：
+1. 框架是否支持目标架构，或易于扩展
+2. 框架的稳定性和生产就绪程度
+3. 框架的吞吐量和计算效率
+
+### Ablation 设置
+
+设置 Ablation 实验需要仔细规划。您需要定义明确的假设、选择适当的指标，并确保实验设计能够提供可操作的见解。
+
+#### 基线配置示例
+
+以下是一个典型的 1B 模型基线配置（基于 Llama 3.2 1B）：
+
+```yaml
+# 数据集和混合权重
+data_stages:
+- data:
+    dataset:
+      dataset_folder:
+      - fineweb-edu
+      - stack-edu-python
+      - finemath-3plus
+      dataset_weights:
+      - 0.7
+      - 0.2
+      - 0.1
+
+# 模型架构
+model:
+  model_config:
+    hidden_size: 2048
+    num_hidden_layers: 16
+    num_attention_heads: 32
+    num_key_value_heads: 8
+    intermediate_size: 8192
+    max_position_embeddings: 4096
+    rope_theta: 50000.0
+    tie_word_embeddings: true
+
+# 训练超参数
+optimizer:
+  clip_grad: 1.0
+  learning_rate_scheduler:
+    learning_rate: 0.0005
+    lr_decay_starting_step: 2000
+    lr_decay_steps: 18000
+    lr_decay_style: cosine
+    lr_warmup_steps: 2000
+    lr_warmup_style: linear
+    min_decay_lr: 5.0e-05
+  optimizer_factory:
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    adam_eps: 1.0e-08
+    name: adamW
+
+# 并行策略
+parallelism:
+  dp: 8  # 8个GPU上的数据并行
+  tp: 1  # 1B规模不需要张量或流水线并行
+  pp: 1
+
+# 分词器
+tokenizer:
+  tokenizer_max_length: 4096
+  tokenizer_name_or_path: HuggingFaceTB/SmolLM3-3B
+
+# 批次大小和训练总量
+tokens:
+  batch_accumulation_per_replica: 16
+  micro_batch_size: 3
+  sequence_length: 4096
+  train_steps: 20000  # 总计30B tokens
+```
+
+<Note title="一次只修改一个变量" emoji="☝️" variant="danger">
+
+每次 Ablation 只改变一个变量，保持其他所有条件不变。如果同时改变多个因素且性能提升，您将无法确定是哪个因素导致的。
+</Note>
+
+## 设计模型架构
+
+一旦有了实验框架，就是时候做出定义模型的大决策了。从模型大小到注意力机制再到分词器，每个选择都会创建影响模型训练和使用的约束和机会。
+
+记住[训练罗盘](#training-compass-why--what--how)：在做出任何技术选择之前，我们需要明确*为什么*和*什么*。为什么要训练这个模型，它应该是什么样的？
+
+听起来很明显，但正如我们之前解释的，在这里深思熟虑会塑造我们的决策，防止我们在无尽的可能实验空间中迷失。我们是追求英语 SOTA 模型？长上下文是优先事项？还是试图验证新架构？训练循环在这些情况下可能看起来相似，但我们运行的实验和接受的权衡会有所不同。尽早回答这些问题有助于我们决定如何在数据和架构工作之间平衡时间，以及在开始运行之前每个方面要创新多少。
+
+### 架构选择
+
+架构选择取决于您的用例和约束。关键考虑因素包括：
+
+- **模型大小**：参数数量、层数、隐藏维度
+- **注意力机制**：标准注意力、MQA、GQA、滑动窗口注意力
+- **位置编码**：RoPE、ALiBi、绝对位置编码
+- **激活函数**：ReLU、GELU、SwiGLU
+- **归一化**：LayerNorm、RMSNorm、Pre-LN、Post-LN
+
+<HtmlEmbed src="embeds/attention-mechanisms.html"/>
+
+### 注意力机制
+
+注意力机制是 Transformer 架构的核心。近年来，已经提出了许多变体，每种都有其优点和缺点。
+
+**多头注意力（MHA）**：标准的注意力机制，每个头都有自己的查询、键和值投影。提供最大的表达能力，但计算和内存成本较高。
+
+**多查询注意力（MQA）**：所有头共享相同的键和值投影，显著减少内存带宽需求。用于 StarCoder 等模型。
+
+**分组查询注意力（GQA）**：介于 MHA 和 MQA 之间的中间方案，头被分成组，每组共享键和值投影。Llama 3 等模型使用此方案。
+
+**多头潜在注意力（MLA）**：DeepSeek-V2 引入的方案，通过将键和值压缩到潜在向量中来减少 KV 缓存大小，同时保持与 MHA 相当的性能。
+
+### RoPE（旋转位置编码）
+
+<HtmlEmbed src="/embeds/rope-demo.html" />
+
+RoPE 是一种相对位置编码方案，它通过旋转查询和键向量来编码位置信息。它已成为许多现代 LLM 的首选位置编码方案。
+
+RoPE 的核心思想是将位置信息编码为旋转矩阵，应用于查询和键向量：
+
+```python
+import torch
+import torch.nn as nn
+
+class RoPE(nn.Module):
+    def __init__(self, dim: int, max_seq_len: int = 2048, base: float = 10000.0):
+        super().__init__()
+        self.dim = dim
+        self.max_seq_len = max_seq_len
+        self.base = base
+        
+        # 预计算旋转角度
+        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+        t = torch.arange(max_seq_len)
+        freqs = torch.outer(t, inv_freq)
+        self.register_buffer('cos', torch.cos(freqs))
+        self.register_buffer('sin', torch.sin(freqs))
+    
+    def forward(self, x: torch.Tensor, seq_len: int):
+        # x: [batch, heads, seq, dim]
+        cos = self.cos[:seq_len]
+        sin = self.sin[:seq_len]
+        
+        # 应用旋转
+        x1, x2 = x[..., ::2], x[..., 1::2]
+        rotated = torch.stack([-x2, x1], dim=-1).flatten(-2)
+        return x * cos + rotated * sin
+```
+
+RoPE 的优势包括：
+- **相对位置编码**：自然地编码相对位置信息
+- **长上下文扩展**：可以通过调整 base 值或应用 NTK 扩展来支持更长的上下文
+- **与 Flash Attention 兼容**：可以与现代高效的注意力实现一起使用
+
+## 数据策划的艺术
+
+想象一下：您花了数周时间完善架构、调整超参数，并设置最稳健的训练基础设施。您的模型收敛得很漂亮，然后...它无法编写连贯的代码，在基本数学上挣扎，甚至可能在中途切换语言。出了什么问题？
+
+答案通常在于数据。虽然我们痴迷于花哨的架构创新和超参数扫描，但数据策划往往决定了我们的模型是真正有用还是只是另一个昂贵的实验。
+
+如果模型架构定义了模型*如何*学习，那么数据定义了它*学习什么*，再多的计算或优化器调整也无法弥补训练错误内容的损失。
+
+### 数据源
+
+常见的数据源包括：
+
+- **网页数据**：Common Crawl、FineWeb、C4
+- **代码数据**：GitHub、Stack Overflow、The Stack
+- **学术数据**：arXiv、PubMed、维基百科
+- **书籍数据**：Gutenberg、Books3
+- **多语言数据**：mC4、OSCAR、CC100
+
+<HtmlEmbed src="embeds/token-distribution.html"/>
+
+### 数据混合
+
+数据混合是将来自不同来源的数据组合成训练集的过程。目标是创建一个平衡的数据集，涵盖模型需要学习的所有领域和能力。
+
+一个好的数据混合应该回答以下问题：
+- 我们希望模型擅长什么？
+- 每个领域哪些数据集最好，我们如何混合它们？
+- 对于目标训练规模，我们有足够的高质量数据吗？
+
+<HtmlEmbed src="/embeds/doc-masking.html" />
+
+### 数据清洗
+
+数据清洗是删除低质量、重复或有害内容的过程。这包括：
+
+- **去重**：删除重复文档
+- **过滤**：删除低质量内容
+- **毒性检测**：删除有害内容
+- **隐私保护**：删除个人身份信息
+
+### Ablation 设置：如何系统性地测试数据配方
+
+测试数据混合时，我们的方法与运行架构 Ablation 类似，但有一个区别：我们尽量在目标模型规模上运行它们。小型和大型模型具有不同的容量。例如，非常小的模型可能难以处理多种语言，而较大的模型可以吸收它们而不会牺牲其他方面的性能。
+
+对于 SmolLM3，我们直接在 3B 模型上运行主要的数据 Ablation，使用 50B 和 100B tokens 的较短训练运行。我们还使用了另一种 Ablation 设置：*退火实验*。我们不是从头开始使用不同的混合进行训练，而是从主运行的中间检查点（例如，在 7T tokens 处）继续训练，并修改数据组成。
+
+## 训练马拉松
+
+训练 LLM 是一个漫长的过程，可能需要数周甚至数月。本节涵盖训练执行的实用方面。
+
+<HtmlEmbed src="/embeds/embedding-calculator.html" />
+
+### 预飞行检查清单
+
+在开始长运行之前，必须验证以下关键事项：
+
+1. **数据管道**：确保数据加载器能够持续提供批次，没有瓶颈
+2. **损失曲线**：短运行（1-2k 步）应显示稳定的下降趋势
+3. **梯度检查**：确保梯度不会爆炸或消失
+4. **检查点保存**：验证检查点可以正确保存和加载
+5. **评估管道**：确保评估可以定期运行并产生合理的结果
+6. **硬件监控**：检查 GPU 温度、内存使用和通信带宽
+
+### 短运行（32k 步）
+
+短运行用于快速验证和调试。它们通常在较小的数据集上运行，以帮助识别问题，然后再承诺进行长运行。
+
+短运行的关键指标：
+- **损失趋势**：应在几千步内显示明显的下降趋势
+- **学习率预热**：确保预热阶段足够长，避免早期不稳定
+- **梯度范数**：应保持在合理范围内（通常 < 1.0）
+
+### 长运行（3.2M 步）
+
+长运行是完整的训练过程。它们需要仔细的监控和调试，以确保训练稳定并达到预期的性能。
+
+长运行期间的监控要点：
+- **损失曲线**：应持续下降，没有突然的尖峰或平台期
+- **学习率调度**：遵循预定的衰减曲线
+- **吞吐量**：监控每秒处理的 tokens 数，识别性能退化
+- **检查点**：定期保存，确保可以从任何点恢复
+- **评估**：定期在下游任务上评估，监控性能趋势
+
+<HtmlEmbed src="embeds/efficiency-leverage.html"/>
+
+### 规模惊喜
+
+在训练过程中，您可能会遇到一些意想不到的现象：
+
+- **损失尖峰**：偶尔的损失增加通常是正常的，但如果频繁发生，可能表明学习率过高或数据有问题
+- **平台期**：损失停止下降可能意味着需要调整学习率或数据混合
+- **过拟合**：如果在训练损失继续下降的同时评估性能停滞，可能是过拟合的迹象
+
+## 超越基础模型——2025 年的后训练
+
+预训练给了我们 SmolLM3 的原始能力，但在 GPU 冷却之前，我们进入了模型能力的下一个前沿：*后训练*。这包括监督微调、强化学习、模型合并等——所有这些都旨在弥合"预测文本的模型"和"人们实际可以使用的模型"之间的差距。
+
+如果预训练是关于将知识强行注入权重，后训练就是关于将原始能力塑造成可靠和可操纵的东西。
+
+<HtmlEmbed src="embeds/benchmark-performance.html"/>
+
+### 后训练罗盘：为什么 → 什么 → 怎么做
+
+就像预训练一样，后训练也受益于清晰的罗盘，以避免浪费研究和工程周期：
+
+1. **为什么后训练？** 预训练中概述的三个动机同样适用于后训练。例如，您可能正在探索强化学习是否可以解锁现有模型的新推理能力（研究），或者您可能需要将大模型蒸馏成小模型以降低延迟（生产）。
+
+2. **什么能力？** 确定您想要增强或添加的具体能力。常见目标包括指令遵循、对话能力、推理、工具使用等。
+
+3. **怎么做？** 选择适当的技术和管道来实现目标能力。
+
+### 评估优先
+
+后训练的第一步——就像预训练一样——是决定正确的评估集。由于当今大多数 LLM 都用作助手，我们发现追求"工作良好"的模型比追逐抽象的"智能"基准（如 ARC-AGI）更好。
+
+一个好的助手至少需要能够：
+- 处理模糊的指令
+- 逐步规划
+- 编写代码
+- 在适当时调用工具
+
+### 监督微调（SFT）
+
+SFT 涉及在高质量指令-响应对数据集上微调预训练模型。这教会模型遵循指令并以有用的方式响应。
+
+SFT 的关键考虑因素：
+- **数据质量**：SFT 数据的质量比数量更重要
+- **数据多样性**：涵盖广泛的指令类型和领域
+- **学习率**：通常比预训练低 10-100 倍
+- **训练步数**：通常只需要几千步
+
+### 直接偏好优化（DPO）
+
+DPO 是一种对齐技术，它使用人类偏好数据来微调模型，使其产生更受欢迎的响应。与 RLHF 不同，DPO 不需要训练单独的奖励模型，而是直接使用偏好数据进行优化。
+
+<HtmlEmbed frameless src="embeds/model-architecture-decision-flowchart.html"/>
+
+### 模型合并
+
+模型合并是一种技术，它组合多个微调模型的权重，以创建一个具有所有模型优点的单一模型。流行的合并技术包括：
+
+- **SLERP**：球面线性插值，平滑地合并两个模型
+- **TIES**：修剪、选举和签名合并，处理多个模型的参数
+- **DARE**：丢弃和重新缩放，通过随机丢弃参数来合并多个模型
+
+## 基础设施——无名英雄
+
+如果没有适当的基础设施，预训练是不可能的。本节涵盖理解、分析和调试 GPU 集群的实用知识。
+
+<HtmlEmbed src="embeds/efficiency-leverage.html"/>
+
+### GPU 内部架构
+
+GPU 从根本上说是为吞吐量而非延迟优化的并行处理器。与擅长快速执行少数复杂指令流的 CPU 不同，GPU 通过同时执行数千个简单操作来实现性能。
+
+理解 GPU 性能的关键在于认识到它不仅仅是关于原始计算能力；而是关于计算和数据移动之间的相互作用。GPU 可以有万亿次浮点运算的理论计算能力，但如果数据不能足够快地到达计算单元，这种潜力就会被浪费。
+
+#### 计算单元和 FLOPs
+
+GPU 计算性能以每秒浮点运算次数（FLOPs）衡量。现代 GPU 如 H100 在低精度下提供显著更高的吞吐量：BF16 下 990 TFLOPs，而 FP32 下仅 67 TFLOPs。然而，实际性能是理论峰值的 70-77%，由于内存瓶颈。SOTA 训练实现了 20-41% 的端到端效率，也称为模型 FLOPs 利用率（MFU）。
+
+GPU 计算的基本构建块是*流式多处理器（SM）*，独立处理单元并行执行指令。每个 SM 包含两种类型的*核心*：用于标准浮点运算的*CUDA 核心*，和专门用于矩阵乘法的*Tensor 核心*——深度学习的工作马操作。
+
+#### 内存层次结构
+
+GPU 内存层次结构从高带宽内存（HBM）向下到寄存器，每一层都比上一层更快但更小：
+
+- **HBM（高带宽内存）**：最大但最慢的内存，用于存储模型权重和激活
+- **L2 缓存**：较小的片上缓存，减少 HBM 访问
+- **共享内存/L1 缓存**：SM 上的快速内存，用于线程块内数据共享
+- **寄存器**：每个线程的最快内存，用于本地变量
+
+### GPU 布局
+
+了解 GPU 在集群中的布局对于优化训练性能至关重要。关键概念包括：
+
+- **节点内通信**：同一节点内 GPU 之间的通信，通常通过 NVLink
+- **节点间通信**：不同节点之间 GPU 的通信，通常通过 InfiniBand
+- **网络拓扑**：连接 GPU 的网络结构
+
+### 通信模式
+
+训练期间 CPU、GPU、节点和存储之间的通信模式会显著影响性能。了解这些模式有助于识别和克服瓶颈。
+
+主要通信模式：
+- **数据并行**：每个 GPU 持有完整的模型副本，处理不同的数据批次
+- **张量并行**：模型层被分割到多个 GPU 上
+- **流水线并行**：模型的不同层被放置在不同的 GPU 上
+
+### 性能分析
+
+性能分析是识别和解决训练瓶颈的关键工具。常用工具包括：
+
+- **Nsight Systems**：系统级性能分析，查看 GPU 利用率和通信模式
+- **Nsight Compute**：内核级性能分析，分析单个 CUDA 内核的性能
+- **PyTorch Profiler**：PyTorch 特定分析，查看算子级别的性能
+
+### 构建弹性训练系统
+
+生产训练运行必须处理各种故障：
+
+- **硬件故障**：GPU 故障、内存错误、网络中断
+- **软件故障**：CUDA 错误、NCCL 超时、数据加载器崩溃
+- **调度中断**：集群调度器抢占、维护窗口
+
+弹性训练的最佳实践：
+1. **频繁检查点**：每 1-2 小时保存一次检查点
+2. **健康检查**：定期验证 GPU 和通信健康
+3. **自动恢复**：从最后一个检查点自动重新启动作业
+4. **监控和警报**：设置关键指标（损失、吞吐量、GPU 温度）的警报
+
+## 结论
+
+我们从一个简单的问题开始这段旅程：在 2026 年，训练一个高性能 LLM 到底需要什么？为了回答这个问题，我们走过了完整的管道，从预训练到后训练，不仅展示了我们使用的技术，还展示了使这些技术奏效的方法论。
+
+我们首先提出了训练罗盘——一个用于决定是否训练的框架，然后展示了如何将目标转化为具体的架构决策。您看到了如何设置可靠的 Ablation 管道、逐一测试变更，以及如何从几十亿 token 的实验扩展到万亿 token 的运行。我们记录了在大规模时可能出现的基础设施挑战（吞吐量崩溃、数据加载器瓶颈、微妙的 bug），以及监控和系统性去风险如何帮助您及早发现并快速调试。
+
+我们还展示了从基础模型到有用的助手需要其自身系统性的方法：在训练任何东西之前建立评估集，迭代 SFT 数据混合，应用偏好优化，并可选地通过 RL 进一步推进。您看到了氛围测试如何捕捉指标遗漏的 bug，聊天模板如何悄然破坏指令遵循，以及为什么数据混合平衡在后训练中和预训练中同样重要。
+
+在整个过程中——预训练和后训练——我们不断回到相同的核心洞察：通过实验验证一切，一次只改变一件事，预期规模会以新的方式破坏事物，让用例驱动决策而不是追逐每篇新论文。遵循这个过程就是我们训练 SmolLM3 的方式——一个具有长上下文能力的竞争力 3B 多语言推理器。在此过程中，我们学到了很多关于什么有效、什么会破坏、以及出问题时如何调试的知识。我们试图在这里记录一切——成功和失败。
+
+### 下一步是什么？
+
+本指南涵盖了现代 LLM 训练的基础知识，但该领域正在快速发展。以下是一些深入的方向：
+
+- **自己运行实验。** 阅读 Ablation 是有用的；运行自己的实验教会你什么真正重要。选择一个小模型，设置评估，然后开始实验。
+- **阅读源代码。** Nanotron、TRL 等训练框架都是开源的。理解它们的实现揭示了论文忽略的细节。
+- **关注最新工作。** 最新 SOTA 模型的论文展示了领域的发展方向。参考文献部分包含我们策划的影响力论文和资源列表。
+
+## 参考文献
+
+以下是指导我们 LLM 训练旅程的精选论文、书籍和博客文章列表。
+
+### LLM 架构
+
+- **密集模型**：[Llama 3](https://huggingface.co/papers/2407.21783), [OLMo 2](https://huggingface.co/papers/2501.00656), [MobileLLM](https://huggingface.co/papers/2402.14905)
+- **MoE**：[DeepSeek-V2](https://huggingface.co/papers/2405.04434), [DeepSeek-V3](https://huggingface.co/papers/2412.19437), [Scaling Laws of Efficient MoEs](https://huggingface.co/papers/2507.17702)
+- **混合模型**：[MiniMax-01](https://huggingface.co/papers/2501.08313), [Mamba2](https://huggingface.co/papers/2405.21060)
+
+### 优化器与训练参数
+
+- [Muon is Scalable for LLM Training](https://huggingface.co/papers/2502.16982)
+- [Fantastic Pretraining Optimizers](https://huggingface.co/papers/2509.02046)
+- [Large Batch Training](https://arxiv.org/abs/1812.06162)
+- [DeepSeek LLM](https://arxiv.org/abs/2401.02954)
+
+### 数据策划
+
+- **网页**：[FineWeb & FineWeb-Edu](https://huggingface.co/papers/2406.17557), [FineWeb2](https://huggingface.co/papers/2506.20920), [DCLM](https://huggingface.co/papers/2406.11794)
+- **代码**：[The Stack v2](https://huggingface.co/papers/2402.19173), [To Code or Not to Code](https://huggingface.co/papers/2408.10914)
+- **数学**：[DeepSeekMath](https://huggingface.co/papers/2402.03300), [FineMath](https://huggingface.co/papers/2502.02737), [MegaMath](https://huggingface.co/papers/2504.02807)
+- **数据混合**：[SmolLM2](https://huggingface.co/papers/2502.02737), [Does Your Data Spark Joy?](https://huggingface.co/papers/2406.03476)
+
+### Scaling Laws
+
+- [Kaplan](https://huggingface.co/papers/2001.08361)
+- [Chinchilla](https://huggingface.co/papers/2203.15556)
+- [Scaling Data-Constrained Language Models](https://huggingface.co/papers/2305.16264)
+
+### 后训练
+
+- [InstructGPT](https://huggingface.co/papers/2203.02155)：OpenAI 将基础模型转变为有用助手的奠基性论文
+- [Llama 2](https://huggingface.co/papers/2307.09288) & [3](https://huggingface.co/papers/2407.21783)：Meta 的详细技术报告
+- [Direct Preference Optimization](https://huggingface.co/papers/2305.18290)：2023年的突破性论文
+- [DeepSeek-R1](https://huggingface.co/papers/2501.12948)：2025年说服每个人重新开始使用 RL 的突破性论文
+- [Understanding R1-Zero-Like Training](https://huggingface.co/papers/2503.20783)：理解 GRPO 内置偏见的重要论文
+
+### 基础设施
+
+- [Ultra-Scale Playbook](https://huggingface.co/spaces/nanotron/ultrascale-playbook)
+- [Jax Scaling Book](https://jax-ml.github.io/scaling-book/)
+- [Modal GPU Glossary](https://modal.com/gpu-glossary/readme)
+
+### 训练框架
+
+- [Megatron-LM](https://github.com/NVIDIA/Megatron-LM)
+- [DeepSpeed](https://github.com/deepspeedai/DeepSpeed)
+- [TorchTitan](https://github.com/pytorch/torchtitan)
+- [Nanotron](https://github.com/huggingface/nanotron/)
+
+### 评估
+
+- [LLM Evaluation Guidebook](https://github.com/huggingface/evaluation-guidebook)
+- [OLMES](https://huggingface.co/papers/2406.08446)
+- [FineTasks](https://huggingface.co/spaces/HuggingFaceFW/blogpost-fine-tasks)
+
+---
+
+本指南基于 Hugging Face 训练 SmolLM3 的真实经验。有关更多详细信息，请参阅以下资源：
+
+- [SmolLM3 模型](https://huggingface.co/HuggingFaceTB/SmolLM3-3B)
+- [FineWeb 数据集](https://huggingface.co/spaces/HuggingFaceFW/blogpost-fineweb-v1)
+- [Ultra-Scale Playbook](https://huggingface.co/spaces/nanotron/ultrascale-playbook)
+- [Hugging Face 社区讨论](https://huggingface.co/spaces/HuggingFaceTB/smol-training-playbook/discussions)

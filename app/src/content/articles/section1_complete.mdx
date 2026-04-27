@@ -1,0 +1,378 @@
+## 每个大模型都从小规模 Ablation 开始
+
+在开始训练 LLM 之前，我们需要做出许多决定，这些决定将影响模型的性能和训练效率。哪种架构最适合我们的用例？应该使用什么优化器和学习率调度器？应该混合哪些数据源？
+
+如何做出这些决定是一个经常被问到的问题。人们有时认为需要深思熟虑。虽然战略思维是必不可少的——正如我们在[上一节](#training-compass-why--what--how)中介绍的——但仅凭推理是不够的。对于 LLM 来说，事情并不总是直观的，关于什么应该有效的假设有时在实践中并不成立。
+
+例如，使用看似"最高质量的数据"并不总是能产生更强大的模型。以 [arXiv](https://arxiv.org/) 为例，它是人类科学知识的庞大集合。直观地说，在如此丰富的 STEM 数据上训练应该会产生更优越的模型，对吧？在实践中，它并没有，特别是对于较小的模型，它甚至可能损害性能。为什么？虽然 arXiv 论文充满了知识，但它们高度专业化，以狭窄的学术风格撰写，这与模型学习效果最好的多样化、通用文本截然不同。
+
+那么，如果盯着问题看很久也没有帮助，我们怎么知道什么有效呢？我们运行大量实验，就像优秀的经验主义者一样！机器学习不是纯数学，实际上是一门实验科学。
+
+<Scidenote>
+
+在许多方面，机器学习类似于统计力学发现之前的热力学：我们有可靠的实证定律和设计原则，即使更深层的理论解释仍在涌现，它们也能很好地工作。
+</Scidenote>
+
+由于这些实验将指导我们的许多关键决策，因此正确设置它们非常重要。我们基本上需要两个主要属性：
+
+1. **速度：** 它们应该尽可能快地运行，以便我们可以频繁迭代。我们可以运行的 Ablation 越多，我们可以测试的假设就越多。
+2. **可靠性：** 它们应该提供强大的区分能力。如果我们查看的指标不能及早有意义地区分不同的设置，我们的 Ablation 可能揭示很少（如果它们有噪声，我们就有追逐噪声的风险！）。更多细节，请查看我们关于将 FineWeb 扩展到 1000+ 语言的[博客文章](https://huggingface.co/spaces/HuggingFaceFW/blogpost-fine-tasks)。
+
+
+但在我们可以设置我们的 ablations 之前，我们需要关于架构类型和模型大小做出一些基本选择。这些决策——由我们的罗盘指导——影响使用哪个训练框架、如何分配我们的计算预算，以及从哪个基线开始。
+
+对于 SmolLM3，我们选择了 3B 参数的密集 Llama 风格架构，因为我们的目标是小型设备上模型。但正如您将在["设计模型架构，"](#designing-the-model-architecture) 中看到的，专家混合 (MoE) 或混合模型可能更适合您的用例，不同的模型大小会带来不同的权衡。我们将在后面深入探讨这些选择，并向您展示如何做出这些决定。现在，让我们从最实际的第一步开始：选择您的基线。
+
+### 选择您的基线
+
+每个成功的模型都构建在经过验证的基础上，并针对其需求进行修改。当 Qwen 训练他们的第一个模型家族时，他们从 Llama 的架构开始。当 Meta 训练 Llama 3 时，他们从 Llama 2 开始。Kimi K2 从 DeepSeek-V3 的 MoE 架构开始。这不仅适用于架构，也适用于训练超参数和优化器。
+
+为什么？设计好的架构和训练设置需要多年的跨多个组织的迭代。标准 Transformer 和 Adam 等优化器已经通过数千次实验进行了优化。人们已经发现了它们的故障模式，调试了不稳定性，优化了实现。从经过验证的基础开始意味着继承了所有那些积累的知识。从头开始意味着自己重新发现每个问题。
+
+为了获得一个好的起点，架构应该：
+
+- **匹配您的约束** ，与您的部署目标和用例保持一致
+- **在规模上得到验证** （在相似或更大大小的多万亿 tokens 运行中得到证明）
+- **有良好文档** ，具有已被证明在开放模型中有效的已知超参数
+- **有良好的框架支持** （理想情况下，它应该在您正在考虑的 training frameworks 和您计划使用的 inference frameworks 中得到支持）
+
+以下是撰写本文时（2026 年初）各种架构和模型大小的一些强大 2025 基线选项的非详尽列表：
+
+| 架构类型 | 模型家族 | 大小 |
+| --- | --- | --- |
+| **密集** | [Llama 3.1](https://huggingface.co/collections/meta-llama/llama-31-669fc079a0c406a149a5738f) | 8B, 70B |
+| **密集** | [Llama 3.2](https://huggingface.co/collections/meta-llama/llama-32-66f448ffc8c32f949b04c8cf) | 1B, 3B |
+| **密集** | [Qwen3](https://huggingface.co/collections/Qwen/qwen3-67dd247413f0e2e4f653967f) | 0.6B, 1.7B, 4B, 14B, 32B |
+| **密集** | [Gemma 3](https://huggingface.co/collections/google/gemma-3-release-67c6c6f89c4f76621268bb6d) | 12B, 27B |
+| **密集** | [SmolLM2](https://huggingface.co/collections/HuggingFaceTB/smollm2-6723884218bcda64b34d7db9), [SmolLM3](https://huggingface.co/HuggingFaceTB/SmolLM3-3B) | 135M, 360M, 1.7B, 3B |
+| **MoE** | [Qwen3 MoE](https://huggingface.co/collections/Qwen/qwen3-67dd247413f0e2e4f653967f) | 30B-A3B, 235B-A122B |
+| **MoE** | [gpt-oss](https://huggingface.co/collections/openai/gpt-oss-68911959590a1634ba11c7a4) | 21B-A3B, 117B-A5B |
+| **MoE** | [Kimi Moonlight](https://huggingface.co/moonshotai/Moonlight-16B-A3B-Instruct) | 16B-A3B |
+| **MoE** | [Kimi K2](https://huggingface.co/collections/moonshotai/kimi-k2-6871243b990f2af5ba60617d) | 1T-A32B |
+| **MoE** | [DeepSeek-V3](https://huggingface.co/deepseek-ai/DeepSeek-V3) | 671B-A37B |
+| **混合** | [Zamba2](https://huggingface.co/Zyphra/models?search=zamba2) | 1.2B, 2.7B, 7B |
+| **混合** | [Falcon-H1](https://huggingface.co/collections/tiiuae/falcon-h1-6819f2795bc406da60fab8df) | 0.5B, 1.5B, 3B, 7B, 34B |
+| **MoE + 混合** | [Qwen3-Next](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct) | 80B-A3B |
+| **MoE + 混合** | [MiniMax-01](https://huggingface.co/MiniMaxAI/MiniMax-Text-01) | 456B-A46B |
+| **MoE + 混合** | [MiMo-V2-Flash](https://huggingface.co/XiaomiMiMo/MiMo-V2-Flash) | 309B-A15B |
+
+找到您的架构类型，并选择一个与您希望模型具有的参数数量接近的基线。不要过度思考它，因为您开始的架构不是一成不变的。在下一节中，您将看到如何从一个基线到一个对您来说最优的最终架构。
+
+### 修改您的基线：降低风险的纪律
+
+您现在有一个有效的基线，适合您的用例。您可以在这里停下来，训练它，并且（假设您的数据混合良好）可能会得到一个不错的模型。许多成功的项目正是这样做的。但基线并没有针对您的特定约束进行优化；它们是为构建它们的人的用例和部署目标设计的。这意味着可能有一些修改值得做，以更好地与您的目标对齐。然而，每个架构变更都带有风险：它可能会提升性能，降低性能，或者什么都不做，同时浪费您的 Ablation 计算资源。
+
+让您保持正轨的纪律是*降低风险*：除非您已经测试过它有帮助，否则永远不要改变任何东西。
+
+<Note title="什么算是降低了风险？" emoji="📍" variant="info">
+
+当测试表明某项更改要么提高了目标能力的性能，要么提供了有意义的收益（例如，更快的推理、更低的内存、更好的稳定性），而没有将性能损害到可接受的范围之外时，该更改就降低了风险。
+</Note>
+
+棘手的部分是您的基线和训练设置有许多组件可以修改：注意力机制、位置编码、激活函数、优化器、训练超参数、归一化方案、模型布局等等。每一个都代表一个潜在的实验，这些组件经常以非线性方式相互作用。您既没有时间也没有计算能力来测试一切或探索每一个相互作用。
+
+所以，从针对您当前基线测试有前途的更改开始。当某些东西工作时，将其集成以创建一个新的基线，然后针对该基线测试下一个更改。如果您的计算预算允许，您可以单独测试更改并运行留一法分析。不要陷入对每个人超参数或测试每个出现的架构变体进行详尽网格搜索的陷阱。
+
+<Scidenote>
+
+查看 ScaleRL 论文 [@scalerl] 了解这种方法在实践中的示例。
+</Scidenote>
+
+<Note title="战略实验" emoji="🎯" variant="success">
+
+知道如何运行实验是不够的；您需要知道哪些实验值得运行。
+在测试任何修改之前问自己两个问题：
+- 这会帮助我的特定用例吗？
+- 这会优化我的训练吗？
+
+如果修改不能清楚地解决任何一个目标，请跳过它。
+</Note>
+
+现在您知道如何通过战略规划识别有前途的东西，是时候继续实证验证了。在接下来的部分中，我们将向您展示如何在实践中实际测试这些更改。我们将涵盖如何设置可靠的实验、解释结果以及避免常见的陷阱。然后，在接下来的章节中，我们将逐步介绍测试流行架构、数据、基础设施和训练决策的具体示例。
+
+### 选择训练框架
+
+我们需要做出的第一个决定是使用哪个框架来训练我们的模型，以及扩展地说，运行我们所有的 ablations。
+
+<Scidenote>
+
+不要成为英雄，在 ablations 和最终运行之间切换训练框架。那是通往痛苦的道路。
+</Scidenote>
+
+这个选择涉及平衡三个关键考虑因素：
+
+1. 框架必须支持我们的目标架构，或者让我们轻松扩展它。
+2. 它需要稳定且生产就绪，并且不会在训练中途神秘地崩溃。
+3. 它应该提供强大的吞吐量，这样我们就可以快速迭代并充分利用我们的计算预算。
+
+在实践中，这些要求可能会相互矛盾，产生权衡。让我们看看一些可用的选项：
+
+<Wide>
+
+| 框架 | 特点 | 生产验证 | 优化程度 | 代码量（核心/总计） | 扩展性与调试 |
+| --- | --- | --- | --- | --- | --- |
+| **Megatron-LM** | ✅ 功能丰富 | ✅ Kimi K2, Nemotron | ✅ 3D并行先驱 | 93k / 269k | ⚠️ 初学者较难 |
+| **DeepSpeed** | ✅ 功能丰富 | ✅ BLOOM, GLM | ✅ ZeRO & 3D并行 | 94k / 194k | ⚠️ 初学者较难 |
+| **TorchTitan** | ⚡ 功能增长中 | ⚠️ 较新但经 PyTorch 团队测试 | ⚡ 密集模型优化 | 7k / 9k | ⚡ 需要并行知识 |
+| **Nanotron** | 🎯 最小化，专为 HF 预训练定制 | ✅ 是（StarCoder, SmolLM） | ✅ 优化（Ultra-Scale Playbook） | 15k / 66k | ⚡ 需要并行知识 |
+</Wide>
+
+此表总结了流行框架之间的关键权衡。前三个框架的代码行数来自 TorchTitan 技术报告 [@torchtitan]。让我们更详细地讨论每一个：
+
+- NVIDIA 的 [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) 已经存在多年，并且经过了实战测试。它驱动了像 Kimi 的 K2 这样的模型；它提供了坚实的吞吐量和我们想要的大多数生产功能。但这种成熟度伴随着复杂性：当您是新手时，代码库可能很难导航和修改。
+- [DeepSpeed](https://github.com/deepspeedai/DeepSpeed) 属于类似类别。它是 ZeRO 优化的先驱，并驱动了 BLOOM 和 GLM 等模型。像 Megatron-LM 一样，它经过了广泛的实战测试和优化，但它共享相同的复杂性挑战。大型代码库（总计 194k 行）在您刚开始时可能令人生畏，特别是对于实现自定义功能或调试意外行为。
+- 另一方面，PyTorch 最近的 [TorchTitan](https://github.com/pytorch/torchtitan) 库由于其紧凑和模块化的代码库而更加轻量和易于导航。它具有预训练所需的核心功能，并且非常适合快速实验。然而，由于较新，它没有经过那么多的实战测试，并且可能仍然有点不稳定，因为它正在积极开发。
+- [Nanotron](https://github.com/huggingface/nanotron) 是我们从头开始构建的框架。这给了我们完全的灵活性，并深入了解了大规模预训练——这些见解后来演变成了 [Ultra-Scale Playbook](https://huggingface.co/spaces/nanotron/ultrascale-playbook)。由于我们将库开源，我们也从社区获得了宝贵的反馈，尽管在大多数情况下，我们不得不首先自己实战测试功能。该框架现在支持我们训练所需的所有生产功能，但我们仍在构建像 MoE 支持这样的领域。
+
+从头开始构建在我们的情况下是有意义的，但它需要在团队专业知识和调试问题以及添加缺失功能的时间方面进行重大投资。一个强大的替代方案是 fork 现有框架并根据您的需要增强它。例如，Thinking Machines Lab 将他们的内部预训练库构建为 [TorchTitan 的一个 fork](https://x.com/cHHillee/status/1949470943291805832)。
+
+最终，您的选择将取决于您团队的专业知识、您的目标功能，以及您愿意在开发 versus 使用最生产就绪的选项方面投入多少时间。
+
+如果多个框架支持您的需求，请在您的特定硬件上比较它们的吞吐量。对于快速实验和速度运行，更简单的代码库通常获胜。
+
+### Ablation 设置
+
+选择了框架后，我们现在需要设计我们的 ablation 设置。我们需要足够快的实验来快速迭代，但又足够大，以便结果给我们信号并转移到最终模型。
+
+#### 设置我们的 Ablation 框架
+
+Ablations 的目标是在小规模上运行实验，并获得我们可以自信地外推到我们最终生产运行的结果。
+
+有两种主要方法。首先，我们可以采用我们的目标模型大小，并在更少的 tokens 上训练它。对于 SmolLM3 ablations，我们在 100B tokens 上训练完整的 3B 模型，而不是最终的 11T。其次，如果我们的目标模型太大，我们可以训练一个更小的代理模型进行 ablations。例如，当 Kimi 开发他们具有 32B 活跃参数的 1T 参数 K2 模型时，对所有 ablations 使用完整大小将非常昂贵，所以他们在一个具有 0.5B 活跃参数的 3B MoE 上运行了一些 ablations。
+
+一个关键问题是这些小规模发现是否真的转移。根据我们的经验，如果某些东西在小规模上损害了性能，您可以自信地将其排除在大规模之外。但如果某些东西在小规模上工作，您需要确保在合理数量的 tokens 上进行了训练，以便以高概率得出结论，这些发现将外推到更大规模。您训练的时间越长，ablation 模型越接近最终模型，就越好。
+
+我们决定在所有 ablations 中使用基线 vanilla transformer。我们的主要设置是遵循 [Llama 3.2 1B](https://huggingface.co/meta-llama/Llama-3.2-1B) 架构的 1B transformer，在 45B tokens 上训练。使用 [此](https://huggingface.co/datasets/HuggingFaceTB/training-guide-nanotron-configs/blob/main/baseline_config_1B.yaml) Nanotron 配置（每 GPU 每秒 42k tokens），在八个 H100s 的节点上训练大约需要一天半。
+
+<Scidenote>
+
+我们训练 45B tokens 以确保获得稳定信号，尽管此模型大小的 <a href="https://arxiv.org/abs/2203.15556" target="_blank">Chinchilla-optimal</a> 大约是 ~35B。
+</Scidenote>
+
+我们的基线 1B 配置以结构化 YAML 格式捕获了所有基本的训练细节。以下是关键部分：
+
+```yaml
+## 数据集和混合权重
+data_stages:
+- data:
+    dataset:
+      dataset_folder:
+      - fineweb-edu
+      - stack-edu-python
+      - finemath-3plus
+      dataset_weights:
+      - 0.7
+      - 0.2
+      - 0.1
+
+## 模型架构，Llama 3.2 1B 配置
+model:
+  model_config:
+    hidden_size: 2048
+    num_hidden_layers: 16
+    num_attention_heads: 32
+    num_key_value_heads: 8  
+    intermediate_size: 8192
+    max_position_embeddings: 4096
+    rope_theta: 50000.0
+    tie_word_embeddings: true
+
+## 训练超参数，带余弦调度的 AdamW
+optimizer:
+  clip_grad: 1.0
+  learning_rate_scheduler:
+    learning_rate: 0.0005
+    lr_decay_starting_step: 2000
+    lr_decay_steps: 18000
+    lr_decay_style: cosine
+    lr_warmup_steps: 2000
+    lr_warmup_style: linear
+    min_decay_lr: 5.0e-05
+  optimizer_factory:
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    adam_eps: 1.0e-08
+    name: adamW
+
+## 并行策略，1 个节点
+parallelism:
+  dp: 8  # 跨 8 个 GPU 的数据并行
+  tp: 1  # 在 1B 规模不需要张量或流水线并行
+  pp: 1 
+
+## 分词器
+tokenizer:
+  tokenizer_max_length: 4096
+  tokenizer_name_or_path: HuggingFaceTB/SmolLM3-3B
+
+## 批次大小、序列长度和 30B tokens 的总训练
+tokens:
+  batch_accumulation_per_replica: 16
+  micro_batch_size: 3  # GBS（全局批次大小）= dp * batch_acc * MBS * sequence = 1.5M tokens
+  sequence_length: 4096
+  train_steps: 20000  # GBS * 20000 = 30B
+```
+
+对于我们的 ablations，我们将根据测试内容修改不同的部分，同时保持其他所有内容不变：`model` 部分用于[架构选择](#architecture-choices)，`optimizer` 部分用于[优化器和训练超参数](#optimiser-and-training-hyperparameters)，以及 `data_stages` 部分用于[数据策划](#the-art-of-data-curation)。
+
+<Note title="一次只修改一个变量" emoji="☝️" variant="danger">
+
+每次 Ablation 只改变一个变量，保持其他所有条件不变。
+如果您同时改变多个因素且性能提升，您将无法确定是什么导致了它。单独测试修改，然后结合成功的修改并重新评估。
+</Note>
+
+当运行 ablations 时，一些架构更改会显著改变参数计数。例如，从 tied 嵌入切换到 untied 嵌入会使我们的嵌入参数加倍，而使用分组查询或多查询注意力代替多头注意力会大幅减少我们的注意力参数（我们很快将讨论所有这些内容）。
+
+为了确保公平比较，我们需要跟踪参数计数，并偶尔调整其他超参数（如隐藏大小或层数）以保持模型大小大致相同。这是我们用来估算不同配置的参数计数的一个简单函数：
+
+```python
+from transformers import LlamaConfig, LlamaForCausalLM
+
+def count_parameters(
+    tie_embeddings=True,
+    num_key_value_heads=4,
+    num_attention_heads=32,
+    hidden_size=2048,
+    num_hidden_layers=16,
+    intermediate_size=8192,
+    vocab_size=128256,
+    sequence_length=4096,
+):
+    config = LlamaConfig(
+        hidden_size=hidden_size,
+        num_hidden_layers=num_hidden_layers,
+        num_attention_heads=num_attention_heads,
+        num_key_value_heads=num_key_value_heads,
+        intermediate_size=intermediate_size,
+        vocab_size=vocab_size,
+        max_position_embeddings=sequence_length,
+        tie_word_embeddings=tie_embeddings,
+    )
+    model = LlamaForCausalLM(config)  
+    return f"{sum(p.numel() for p in model.parameters())/1e9:.2f}B"
+```
+
+我们还提供了一个交互式工具来可视化 LLM 参数分布（针对密集 transformer 的情况）。这在进行架构决策或为 ablations 设置配置时可能很方便。
+
+<HtmlEmbed src="/embeds/parameter-calculator.html" />
+
+<Scidenote>
+
+此计算器假设标准架构选择：门控前馈网络、注意力的标准头维度（*hidden_size* / *num_heads*），以及每个 transformer 层的两个层归一化。它不包括偏置项（如果使用）。
+</Scidenote>
+
+#### 理解什么有效：评估
+
+一旦我们启动 ablations，我们怎么知道什么有效，什么无效？
+
+任何训练模型的人可能会首先本能地查看损失，是的，这很重要。您希望看到它平稳下降，没有剧烈的峰值或不稳定性。对于许多架构选择，损失与下游性能相关性很好，并且可能就足够了 [@chen2025]。然而，仅查看损失并不总是可靠的。以数据 ablations 为例，您会发现训练在 Wikipedia 上比训练在网页上给出的损失更低（下一个 token 更容易预测），但这并不意味着您会得到一个更有能力的模型。同样，如果我们在运行之间更改分词器，损失不能直接比较，因为文本的分词方式不同。有些更改可能特别影响某些能力，如推理和数学，但在平均损失中被掩盖了。最后但同样重要的是，即使在预训练损失收敛后，模型也可以继续在下游任务上改进 [@liu2022]。
+
+我们需要更细粒度的评估来看到全貌并理解这些细微的影响。一个自然的方法是使用测试知识、理解、推理以及对我们重要的任何其他领域的下游评估。
+
+对于这些 ablations，专注于提供良好早期信号并避免噪声基准的任务是很有用的。在 [FineTasks](https://huggingface.co/spaces/HuggingFaceFW/blogpost-fine-tasks) 和 [FineWeb2](https://arxiv.org/pdf/2506.20920) 中，可靠的评估任务由四个关键原则定义：
+
+- **单调性：** 随着模型训练时间更长，基准分数应持续提高。
+- **低噪声：** 当我们使用相同设置但不同随机种子训练模型时，基准分数不应该剧烈变化。
+- **高于随机性能：** 许多能力只在训练后期出现，所以对于长时间段显示随机水平性能的任务，对 ablations 没有用。例如，正如我们稍后将解释的，MMLU 在多选格式中就是这种情况。
+- **排名一致性：** 如果一种方法在早期阶段优于另一种方法，那么随着训练的继续，这种排序应该保持稳定。
+
+任务的质量还取决于任务表述（我们如何向模型提问）和度量选择（我们如何计算答案分数）。
+
+三种常见的任务表述是 *多选格式 (MCF)*、*完形填空格式 (CF)* 和 *自由形式生成 (FG)*。MCF 要求模型从提示中明确呈现的多个选项中选择一个选项，并前缀为 A/B/C/D（如 MMLU 中所做的）。在 CF 中，我们比较不同选择的可能性，看看哪个更有可能，而不在提示中提供它们。在 FG 中，我们查看给定提示的贪心生成的准确性。FG 需要模型中大量的潜在知识，对于完整训练运行之前的短期预训练 ablations 来说，通常太困难了，以至于不太有用。因此，我们在运行小型 ablations 时专注于多选格式（MCF 或 CF）。
+
+<Note title="提前通知" emoji="📍" variant="info">
+
+对于经过后训练的模型，FG 成为主要表述，因为我们正在评估模型是否实际上可以生成有用的响应。
+我们将在["超越基础模型——2025 年的后训练"](#beyond-base-models--post-training-in-2025) 中介绍这些模型的评估。
+</Note>
+
+研究还表明，模型在训练早期与 MCF 作斗争，使得 CF 更适合早期信号 [@olmes; @du2025; @datacomp]。因此，我们使用 CF 进行小型 ablations，并将 MCF 集成到主运行中（因为它在训练的后期阶段提供更好的信号）。为了在像 CF 这样的序列似然评估中评分模型的答案，我们将正确答案具有最高对数概率（按字符数归一化）的问题的百分比计算为准确率。这种归一化防止了对较短答案的偏差。
+
+<Scidenote>
+
+MMLU MCF 变得非随机的时间点取决于模型大小和训练数据。对于 7B transformer，OLMES 论文 [@olmes] 发现模型在 500B tokens 后开始显示非随机性能。对于 1.7B 模型，我们在 SmolLM2 [@smollm2] 中发现这在 6T tokens 后发生。@du2025 认为这从根本上说是关于预训练损失达到某个阈值。
+
+</Scidenote>
+
+我们的 ablations 评估套件包括来自 [FineWeb](https://huggingface.co/spaces/HuggingFaceFW/blogpost-fineweb-v1) ablations 的基准，除了 SIQA，我们发现它太噪声了。我们添加了数学和代码基准，如 GSM8K 和 HumanEval，以及用于长上下文 ablations 的长上下文基准 RULER。这种任务聚合测试了各种格式的世界知识、推理和常识，如下表所示。为了以一些额外噪声为代价加速评估，我们每个基准只评估 1,000 个问题（除了 GSM8K、HumanEval 和 RULER，我们在 3B SmolLM3 ablations 中完整使用它们，但从 1B 实验中省略）。我们使用 CF 来评估所有多选基准，如前所述。请注意，对于多语言 ablations 和实际训练，我们添加了更多基准来测试多语言性，我们稍后将详细说明。这些评估使用 [LightEval](https://github.com/huggingface/lighteval) 运行。以下是每个基准的关键特征摘要：
+
+| 基准 | 领域 | 任务类型 | 问题数 | 测试内容 |
+| --- | --- | --- | --- | --- |
+| MMLU | 知识 | 多选 | 14k | 57 个学科的综合学术知识 |
+| ARC | 科学和推理 | 多选 | 7k | 年级科学推理 |
+| HellaSwag | 常识推理 | 多选 | 10k | 关于日常情况的常识推理（叙事完成） |
+| WinoGrande | 常识推理 | 二元选择 | 1.7k | 需要世界知识的代词解析 |
+| CommonSenseQA | 常识推理 | 多选 | 1.1k | 关于日常概念的常识推理 |
+| OpenBookQA | 科学 | 多选 | 500 | 带推理的小学科学事实 |
+| PIQA | 物理常识 | 二元选择 | 1.8k | 关于日常物体的物理常识 |
+| GSM8K | 数学 | 自由形式生成 | 1.3k | 小学数学单词问题 |
+| HumanEval | 代码 | 自由形式生成 | 164 | 从 docstrings 进行 Python 函数合成 |
+
+让我们从每个中看一些示例问题，以具体了解这些评估实际测试的内容：
+
+<iframe src="https://huggingface.co/datasets/HuggingFaceTB/llm-benchmarks-viewer/embed/viewer/default/mmlu" class="card card--p0" frameborder="0" width="100%" height="450px"></iframe>
+
+您可以在[交互式版本](https://huggingface.co/datasets/HuggingFaceTB/llm-benchmarks-viewer/viewer)中浏览示例，以查看每个基准中的问题类型。请注意 MMLU 和 ARC 如何用多选测试事实知识，GSM8K 需要计算数学问题的数值答案，以及 HumanEval 需要生成完整的 Python 代码。这种多样性确保我们在整个 ablations 过程中测试模型能力的不同方面。
+
+**Ablations 使用什么数据混合？**
+
+对于 *架构 ablations*，我们在固定的高质量数据集混合上训练，这些数据集提供广泛的任务早期信号。我们使用英语（[FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu)）、数学（[FineMath](https://huggingface.co/datasets/HuggingFaceTB/finemath)）和代码（[Stack-Edu-Python](https://huggingface.co/datasets/HuggingFaceTB/stack-edu)）。架构发现应该很好地外推到其他数据集和领域，包括多语言数据，所以我们可以保持我们的数据混合简单。
+
+对于 *数据 ablations*，我们采取相反的方法：我们固定架构并系统地改变数据混合，以了解不同数据源如何影响模型性能。
+
+<Scidenote>
+
+有时评估的差异可能很小。如果您有足够的计算能力，可能值得用不同的种子重新运行相同的 ablations，看看结果变化有多大。
+</Scidenote>
+
+可靠的 ablation 设置的真正价值超越了仅仅构建一个好模型。当我们的主训练运行期间出现问题（并且会出现问题，无论我们准备得多么充分），我们希望对我们做出的每个决定都充满信心，并能够快速识别哪些组件没有经过测试。这种准备节省了调试时间并保护了我们未来的心理 sanity。
+
+#### 估算 Ablation 成本
+
+Ablations 很棒，但它们需要 GPU 时间。值得了解这些实验的成本。下表显示了 SmolLM3 预训练的完整计算分解：主运行（考虑偶尔的停机时间）、之前和期间的 ablations，加上在意外扩展问题上花费的计算，迫使重新启动和一些调试（我们稍后将详细介绍）。
+
+| 阶段 | GPU 数 | 天数 | GPU 小时数 |
+| --- | --- | --- | --- |
+| 主预训练运行 | 384 | 30 | 276,480 |
+| Ablations（预训练前） | 192 | 15 | 69,120 |
+| Ablations（训练中） | 192 | 10 | 46,080 |
+| 训练重置/调试 | 384 / 192 | 3 / 4 | 46,080 |
+| **总成本** | - | - | **437,760** |
+
+<Scidenote>
+
+我们估计评估成本略低于 10,000 GPU 小时。我们的完整评估套件（英语、多语言、数学和代码）每个 GPU 大约需要 1.5 小时，我们在整个 11T tokens 中每 10B tokens 评估一次，此外还有无数的 ablations。长上下文评估特别昂贵，每次运行在 8 个 GPU 上花费大约 1 小时。
+</Scidenote>
+
+这些数字揭示了一个重要事实：Ablations 和调试总共消耗了 161,280 GPU 小时，**超过我们主训练运行成本的一半**（276,480 GPU 小时）。我们在 SmolLM3 的开发过程中运行了 100 多次 ablations：我们花了 20 天进行预训练 ablations，10 天进行训练中 ablations，以及 7 天从上述的意外训练问题中恢复。
+
+这突出了为什么必须将 ablation 成本纳入您的计算预算：计划训练成本加上 ablations 加上意外情况的缓冲区。如果您正在瞄准 SOTA 性能、实施新的架构更改，或者还没有经过验证的方法，那么 ablations 将成为实质性的成本中心而不是小型实验。
+
+<Scidenote>
+
+当 [DeepSeek-V3](https://huggingface.co/deepseek-ai/DeepSeek-V3) 出来时，[世界聚焦于](https://www.forbes.com/sites/markminevich/2025/02/06/the-6-million-ai-bombshell-how-deepseek-shook-wall-street-and-ai-leadership/) 其报告的 560 万美元训练成本。许多人将那个数字解释为完整的研发成本。实际上，它只反映了最终的训练运行。更大——而且通常不可见——的费用在于研究本身：导致最终方法的 ablations、失败的运行的调试。鉴于模型的规模和新颖性，研究成本肯定更高。
+</Scidenote>
+
+在我们继续设计模型架构之前，让我们建立一些每个运行实验的人都应该遵循的基本规则。
+
+### 参与规则
+
+<Quote>
+
+TL;DR：保持偏执。
+</Quote>
+
+**验证您的评估套件。** 在训练任何模型之前，确保您的评估套件可以重现您将比较的模型的已发布结果。如果任何基准本质上是生成性的（例如，GSM8K），请格外偏执并手动检查一些样本，以确保提示格式正确，并且任何后处理都在提取正确的信息。由于评估将指导每一个决定，因此正确完成此步骤对于项目的成功至关重要！
+
+**测试每个更改，无论多么小。** 不要低估看似无辜的库升级或"只更改了两行"的提交的影响。这些小更改可能会引入细微的错误或性能转变，从而污染您的结果。您需要一个在重要案例上具有强大测试套件的库，以避免回归。
+
+<Scidenote>
+
+在某些情况下，可以通过升级库到最新版本来解决错误。有关一些侦探调试的美丽示例，请参阅 Elana Simon 的[博客文章](https://elanapearl.github.io/blog/2025/the-bug-that-taught-me-pytorch/?t=1)。
+</Scidenote>
+
+**一次更改一件事。** 在实验之间保持其他所有内容相同。有些更改可能以意想不到的方式相互交互，因此您希望首先评估每个更改的个体贡献，然后尝试将它们组合以查看它们的整体影响。
+
+**在足够的 tokens 上训练并使用充分的评估。** 正如我们之前提到的，您需要确保在您的评估套件中有良好的覆盖，并训练足够长的时间以获得可靠的信号。在这里走捷径将导致噪声结果和糟糕的决定。
+
+遵循这些规则可能感觉过于谨慎，但另一种选择是花费数天调试神秘的性能下降，结果证明是由几天前不相关的依赖项更新引起的。黄金法则：一旦您有一个好的设置，*不应该有未经测试的更改！*

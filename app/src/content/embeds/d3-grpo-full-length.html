@@ -204,7 +204,7 @@
         }
       } catch (_) {}
 
-      const DEFAULT_CSV = '../data/grpo/rl_reward_curves.csv';
+      const DEFAULT_CSV = '../data/rl_reward_curves.csv';
       const ensureDataPrefix = (p) => {
         if (typeof p !== 'string' || !p) return p;
         // If it starts with /, it's already absolute
@@ -220,9 +220,9 @@
         ? normalizeInput(providedData)
         : (typeof providedData === 'string' ? normalizeInput(providedData) || [DEFAULT_CSV] : [
             DEFAULT_CSV,
-            './assets/data/grpo/rl_reward_curves.csv',
-            '../assets/data/grpo/rl_reward_curves.csv',
-            '../../assets/data/grpo/rl_reward_curves.csv'
+            './asse../data/rl_reward_curves.csv',
+            '../asse../data/rl_reward_curves.csv',
+            '../../asse../data/rl_reward_curves.csv'
           ]);
 
       const fetchFirstAvailable = async (paths) => {
@@ -661,17 +661,17 @@
 
       // Load both datasets
       const REWARD_PATHS = [
-        '../data/grpo/rl_reward_full_length.csv',
-        './assets/data/grpo/rl_reward_full_length.csv',
-        '../assets/data/grpo/rl_reward_full_length.csv',
-        '../../assets/data/grpo/rl_reward_full_length.csv'
+        '../data/rl_reward_full_length.csv',
+        './asse../data/rl_reward_full_length.csv',
+        '../asse../data/rl_reward_full_length.csv',
+        '../../asse../data/rl_reward_full_length.csv'
       ];
 
       const LENGTH_PATHS = [
-        '../data/grpo/rl_mean_terminated_length_full_length.csv',
-        './assets/data/grpo/rl_mean_terminated_length_full_length.csv',
-        '../assets/data/grpo/rl_mean_terminated_length_full_length.csv',
-        '../../assets/data/grpo/rl_mean_terminated_length_full_length.csv'
+        '../data/rl_mean_terminated_length_full_length.csv',
+        './asse../data/rl_mean_terminated_length_full_length.csv',
+        '../asse../data/rl_mean_terminated_length_full_length.csv',
+        '../../asse../data/rl_mean_terminated_length_full_length.csv'
       ];
 
       Promise.all([

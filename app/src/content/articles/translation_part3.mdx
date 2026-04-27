@@ -1,0 +1,131 @@
+
+### Ablation 设置
+
+选择了框架后，我们现在需要设计我们的 ablation 设置。我们需要足够快的实验来快速迭代，但又足够大，以便结果给我们信号并转移到最终模型。
+
+#### 设置我们的 Ablation 框架
+
+Ablations 的目标是在小规模上运行实验，并获得我们可以自信地外推到我们最终生产运行的结果。
+
+有两种主要方法。首先，我们可以采用我们的目标模型大小，并在更少的 tokens 上训练它。对于 SmolLM3 ablations，我们在 100B tokens 上训练完整的 3B 模型，而不是最终的 11T。其次，如果我们的目标模型太大，我们可以训练一个更小的代理模型进行 ablations。例如，当 Kimi 开发他们具有 32B 活跃参数的 1T 参数 K2 模型时，对所有 ablations 使用完整大小将非常昂贵，所以他们在一个具有 0.5B 活跃参数的 3B MoE 上运行了一些 ablations。
+
+一个关键问题是这些小规模发现是否真的转移。根据我们的经验，如果某些东西在小规模上损害了性能，您可以自信地将其排除在大规模之外。但如果某些东西在小规模上工作，您需要确保在合理数量的 tokens 上进行了训练，以便以高概率得出结论，这些发现将外推到更大规模。您训练的时间越长，ablation 模型越接近最终模型，就越好。
+
+我们决定在所有 ablations 中使用基线 vanilla transformer。我们的主要设置是遵循 [Llama 3.2 1B](https://huggingface.co/meta-llama/Llama-3.2-1B) 架构的 1B transformer，在 45B tokens 上训练。使用 [此](https://huggingface.co/datasets/HuggingFaceTB/training-guide-nanotron-configs/blob/main/baseline_config_1B.yaml) Nanotron 配置（每 GPU 每秒 42k tokens），在八个 H100s 的节点上训练大约需要一天半。
+
+<Scidenote>
+
+我们训练 45B tokens 以确保获得稳定信号，尽管此模型大小的 <a href="https://arxiv.org/abs/2203.15556" target="_blank">Chinchilla-optimal</a> 大约是 ~35B。
+</Scidenote>
+
+我们的基线 1B 配置以结构化 YAML 格式捕获了所有基本的训练细节。以下是关键部分：
+
+```yaml
+## 数据集和混合权重
+data_stages:
+- data:
+    dataset:
+      dataset_folder:
+      - fineweb-edu
+      - stack-edu-python
+      - finemath-3plus
+      dataset_weights:
+      - 0.7
+      - 0.2
+      - 0.1
+
+## 模型架构，Llama 3.2 1B 配置
+model:
+  model_config:
+    hidden_size: 2048
+    num_hidden_layers: 16
+    num_attention_heads: 32
+    num_key_value_heads: 8  
+    intermediate_size: 8192
+    max_position_embeddings: 4096
+    rope_theta: 50000.0
+    tie_word_embeddings: true
+
+## 训练超参数，带余弦调度的 AdamW
+optimizer:
+  clip_grad: 1.0
+  learning_rate_scheduler:
+    learning_rate: 0.0005
+    lr_decay_starting_step: 2000
+    lr_decay_steps: 18000
+    lr_decay_style: cosine
+    lr_warmup_steps: 2000
+    lr_warmup_style: linear
+    min_decay_lr: 5.0e-05
+  optimizer_factory:
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    adam_eps: 1.0e-08
+    name: adamW
+
+## 并行策略，1 个节点
+parallelism:
+  dp: 8  # 跨 8 个 GPU 的数据并行
+  tp: 1  # 在 1B 规模不需要张量或流水线并行
+  pp: 1 
+
+## 分词器
+tokenizer:
+  tokenizer_max_length: 4096
+  tokenizer_name_or_path: HuggingFaceTB/SmolLM3-3B
+
+## 批次大小、序列长度和 30B tokens 的总训练
+tokens:
+  batch_accumulation_per_replica: 16
+  micro_batch_size: 3  # GBS（全局批次大小）= dp * batch_acc * MBS * sequence = 1.5M tokens
+  sequence_length: 4096
+  train_steps: 20000  # GBS * 20000 = 30B
+```
+
+对于我们的 ablations，我们将根据测试内容修改不同的部分，同时保持其他所有内容不变：`model` 部分用于[架构选择](#architecture-choices)，`optimizer` 部分用于[优化器和训练超参数](#optimiser-and-training-hyperparameters)，以及 `data_stages` 部分用于[数据策划](#the-art-of-data-curation)。
+
+<Note title="一次只修改一个变量" emoji="☝️" variant="danger">
+
+每次 Ablation 只改变一个变量，保持其他所有条件不变。
+如果您同时改变多个因素且性能提升，您将无法确定是什么导致了它。单独测试修改，然后结合成功的修改并重新评估。
+</Note>
+
+当运行 ablations 时，一些架构更改会显著改变参数计数。例如，从 tied 嵌入切换到 untied 嵌入会使我们的嵌入参数加倍，而使用分组查询或多查询注意力代替多头注意力会大幅减少我们的注意力参数（我们很快将讨论所有这些内容）。
+
+为了确保公平比较，我们需要跟踪参数计数，并偶尔调整其他超参数（如隐藏大小或层数）以保持模型大小大致相同。这是我们用来估算不同配置的参数计数的一个简单函数：
+
+```python
+from transformers import LlamaConfig, LlamaForCausalLM
+
+def count_parameters(
+    tie_embeddings=True,
+    num_key_value_heads=4,
+    num_attention_heads=32,
+    hidden_size=2048,
+    num_hidden_layers=16,
+    intermediate_size=8192,
+    vocab_size=128256,
+    sequence_length=4096,
+):
+    config = LlamaConfig(
+        hidden_size=hidden_size,
+        num_hidden_layers=num_hidden_layers,
+        num_attention_heads=num_attention_heads,
+        num_key_value_heads=num_key_value_heads,
+        intermediate_size=intermediate_size,
+        vocab_size=vocab_size,
+        max_position_embeddings=sequence_length,
+        tie_word_embeddings=tie_embeddings,
+    )
+    model = LlamaForCausalLM(config)  
+    return f"{sum(p.numel() for p in model.parameters())/1e9:.2f}B"
+```
+
+我们还提供了一个交互式工具来可视化 LLM 参数分布（针对密集 transformer 的情况）。这在进行架构决策或为 ablations 设置配置时可能很方便。
+
+<HtmlEmbed src="/embeds/parameter-calculator.html" />
+
+<Scidenote>
+
+此计算器假设标准架构选择：门控前馈网络、注意力的标准头维度（*hidden_size* / *num_heads*），以及每个 transformer 层的两个层归一化。它不包括偏置项（如果使用）。
+</Scidenote>
