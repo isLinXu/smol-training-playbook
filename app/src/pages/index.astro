@@ -234,6 +234,50 @@ const licence =
     <script
       src="https://cdn.jsdelivr.net/npm/medium-zoom@1.1.0/dist/medium-zoom.min.js"
     ></script>
+    <script is:inline src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script is:inline>
+      (function() {
+        function waitForMermaid(cb, retries) {
+          retries = retries || 0;
+          if (window.mermaid) {
+            cb();
+          } else if (retries < 100) {
+            setTimeout(function() { waitForMermaid(cb, retries + 1); }, 50);
+          }
+        }
+        function initMermaid() {
+          var codeBlocks = document.querySelectorAll('pre code.language-mermaid');
+          if (codeBlocks.length === 0) return;
+
+          var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: isDark ? 'dark' : 'default',
+            securityLevel: 'loose'
+          });
+
+          codeBlocks.forEach(function(codeBlock) {
+            var pre = codeBlock.parentElement;
+            var code = codeBlock.textContent || '';
+            var div = document.createElement('div');
+            div.className = 'mermaid';
+            div.textContent = code;
+            pre.parentNode.replaceChild(div, pre);
+          });
+
+          mermaid.run({ querySelector: '.mermaid' });
+        }
+
+        function start() {
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() { waitForMermaid(initMermaid); });
+          } else {
+            waitForMermaid(initMermaid);
+          }
+        }
+        start();
+      })();
+    </script>
     <script src="/src/scripts/mermaid-zoom.js"></script>
     <script>
       // Debug and global zoom initialization
