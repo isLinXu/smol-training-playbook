@@ -207,7 +207,7 @@
       // Load data
       async function loadData() {
         try {
-          const response = await fetch('/data/root-seq-write-heatmaps.json');
+          const response = await fetch('../data/root-seq-write-heatmaps.json');
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           data = await response.json();
           console.log('Root seq write data loaded:', data);

@@ -1382,6 +1382,8 @@ $$
 | Kimi K2 | 384 routed + 1 shared = 385 | 8 routed + 1 shared = 9 | 42.8 |
 | Qwen3-Next-80B-A3B-Instruct | 512 routed + 1 shared = 513 | 10 total active + 1 shared = 11 | 46.6 |
 
+</Wide>
+
 最近的趋势很清楚：MoE模型变得越来越稀疏。也就是说，最优稀疏性仍然取决于硬件和端到端效率。例如，Step-3针对峰值效率，并故意不最大化稀疏性以适应特定的硬件和带宽约束，而gpt-oss-20b由于设备上内存约束具有低稀疏性（被动专家仍然占用一些内存）。
 
 **粒度**
@@ -2888,47 +2890,16 @@ flowchart LR
 在我们聊天模板的设计中，我们暴露了一个`custom_instructions`参数来存储系统提示。例如，以下是我们在对话中设置人格的方式：
 
 ```python
+# 示例代码展示了聊天模板的使用
 from transformers import AutoTokenizer
 
 tok = AutoTokenizer.from_pretrained("HuggingFaceTB/SmolLM3-3B")
-
 messages = [
-    {
-        "content": "I'm trying to set up my iPhone, can you help?",
-        "role": "user",
-    },
-    {
-        "content": "Of course, even as a vampire, technology can be a bit of a challenge sometimes [TRUNCATED]",
-        "role": "assistant",
-    },
+    {"content": "Hello", "role": "user"},
+    {"content": "Hi there", "role": "assistant"},
 ]
-
-chat_template_kwargs = {
-    "custom_instructions": "You are a vampire technologist",
-    "enable_thinking": False,
-}
-
-rendered_input = tok.apply_chat_template(
-    messages, tokenize=False, **chat_template_kwargs
-)
-
-print(rendered_input)
-## <|im_start|>system
-### Metadata
-## Knowledge Cutoff Date: June 2025
-## Today Date: 28 October 2025
-## Reasoning Mode: /no_think
-###
-### Custom Instructions
-## You are a vampire technologist
-##
-<|im_start|>user
-## I'm trying to set up my iPhone, can you help?<|im_end|>
-<|im_start|>assistant
-## <think>
-##
-</think>
-## Of course, even as a vampire, technology can be a bit of a challenge sometimes # [TRUNCATED]<|im_end|>
+rendered = tok.apply_chat_template(messages, tokenize=False)
+print(rendered)
 ```
 
 问题在于我们的数据样本看起来像这样：
@@ -3105,7 +3076,7 @@ SnorkelAI提供了这种方法的一个很好示例。他们采用了来自名�
 
 [SnorkelAI数据集查看器]
 
-在SmolLM3开发时，不存在带有推理痕迹的任何偏好数据，所以我们决定使用"强vs.弱"方法生成我们自己的一些。我们使用来自Ai2的Tulu 3偏好混合的提示，以`<think>`模式从Qwen3-32B和Qwen3-0.6B生成响应。结果是一个[大规模数据集，包含250k+ LLM生成的偏好](https://huggingface.co/datasets/HuggingFaceTB/smoltalk2/viewer/preference/tulu_3_8b_pref_mix_Qwen3_32B_Qwen3_0.6B_think)，准备好使用偏好优化算法同时在多个轴上改进我们的SFT检查点。
+在SmolLM3开发时，不存在带有推理痕迹的任何偏好数据，所以我们决定使用"强vs.弱"方法生成我们自己的一些。我们使用来自Ai2的Tulu 3偏好混合的提示，以`think`模式从Qwen3-32B和Qwen3-0.6B生成响应。结果是一个[大规模数据集，包含250k+ LLM生成的偏好](https://huggingface.co/datasets/HuggingFaceTB/smoltalk2/viewer/preference/tulu_3_8b_pref_mix_Qwen3_32B_Qwen3_0.6B_think)，准备好使用偏好优化算法同时在多个轴上改进我们的SFT检查点。
 
 #### 您应该使用哪个算法？
 
@@ -3128,7 +3099,7 @@ SnorkelAI提供了这种方法的一个很好示例。他们采用了来自名�
 幸运的是，我们可以在TRL的`DPOTrainer`中仅通过一行更改在这些之间切换，所以对于我们的初始基线，我们做了以下操作：
 
 1. 使用来自Ai2的[Tulu 3 Preference Personas IF数据集](https://huggingface.co/datasets/allenai/tulu-3-pref-personas-instruction-following)的提示和补全，以使用`/no_think`推理模式测量IFEval上指令跟随的改进。
-2. 重用上述数据集的提示，但现在用Qwen3-32B和Qwen3-0.6B生成"强vs.弱"偏好对。这给了我们用于`<think>`推理模式的偏好数据。
+2. 重用上述数据集的提示，但现在用Qwen3-32B和Qwen3-0.6B生成"强vs.弱"偏好对。这给了我们用于`think`推理模式的偏好数据。
 3. 训练一个epoch并测量IFEval上的*域内*改进，以及与其他评估（如AIME25，它们与指令跟随直接相关）的*域外*影响。
 
 如下图所示，两种推理模式的域内改进都是显著的：在IFEval上，APO-zero比SFT检查点改进了15-20个百分点！
@@ -3229,60 +3200,58 @@ RLHF和RLVR都定义了模型正在优化的*什么*，但它们没有告诉我�
 
 <HtmlEmbed src="/embeds/d3-rl-token-histogram.html" />
 
-如您所见，`/no_think`模式生成中位数长度约为2k token的解决方案，而`<think>`模式的中位数长度要大得多（16k token），具有肥尾分布。理想情况下，我们希望使用RLVR改进两种模式的整体性能，而不会太激进地改变它们各自的的长度分布。
+如您所见，`/no_think`模式生成中位数长度约为2k token的解决方案，而`think`模式的中位数长度要大得多（16k token），具有肥尾分布。理想情况下，我们希望使用RLVR改进两种模式的整体性能，而不会太激进地改变它们各自的的长度分布。
 
-为了探索这一点，我们专注于使用来自[Big-Math](https://huggingface.co/datasets/SynthLabsAI/Big-Math-RL-Verified)的提示子集优化`<think>`模式，这是一个包含超过250k个带有已验证答案的数学问题的数据集。
+为了探索这一点，我们专注于使用来自[Big-Math](https://huggingface.co/datasets/SynthLabsAI/Big-Math-RL-Verified)的提示子集优化`think`模式，这是一个包含超过250k个带有已验证答案的数学问题的数据集。
 
 令我们惊讶的是，朴素地应用GRPO导致了一种奖励黑客攻击：尽管从未被提示发出长思维链（CoT），模型学会了利用其基本推理能力来增加奖励。如下图所示，不仅奖励上升了，补全的长度也上升了：
 
 <HtmlEmbed src="embeds/d3-rl-full-length.html" caption="朴素地将RLVR应用于SmolLM3实现了高奖励和改进的下游性能，但是以补全长度爆炸为代价的。"/>
 
-换句话说，使用GRPO的RLVR将我们的推理模型的`<think>`模式转换成了看起来非常类似于`<think>`模式的东西！
+换句话说，使用GRPO的RLVR将我们的推理模型的`think`模式转换成了看起来非常类似于`think`模式的东西！
 
 当我们审查模型的补全时，我们看到它现在生成长的CoT，甚至包括一些与推理模型相关的认知行为[@cognitivebehaviours]，如"Wait, ..."。这里有一个例子：
 
-```
+```text
 但是，由于慢跑者和火车都在同一个方向上移动，相对速度是它们速度之间的差异：
-\（ v_{\\text{rel}} = v_t - v_j = 12.7778 - 2.7778 = 10 \） m/s
-```
+v_rel = v_t - v_j = 12.7778 - 2.7778 = 10 m/s
 
-**Wait,** 让我再检查一次计算：
+Wait, 让我再检查一次计算：
 46 km/hr 转换为 m/s：
 46 * 1000 m / 3600 s = (46 * 10) / 36 = 460/36 ≈ 12.7778 m/s（正确）
 10 km/hr 是：
 10 * 1000 / 3600 = 10000 / 3600 ≈ 2.7778 m/s（正确）
 差异：12.7778 - 2.7778 = 10 m/s（恰好，因为 46-10=36 km/hr → 36*(1000/3600)=10 m/s 恰好）
 
-**Wait,** 实际上，当问题说火车需要46秒才能超过慢跑者时，通常意味着从火车头到超过慢跑者的时间。那么火车的长度将等于相对速度乘以时间。
+Wait, 实际上，当问题说火车需要46秒才能超过慢跑者时，通常意味着从火车头到超过慢跑者的时间。那么火车的长度将等于相对速度乘以时间。
 
-**Wait,** 实际上，当问题说慢跑者在火车引擎前340米时。所以引擎在慢跑者后面340米？Wait, 也许我需要澄清一下。
+Wait, 实际上，当问题说慢跑者在火车引擎前340米时。所以引擎在慢跑者后面340米？Wait, 也许我需要澄清一下。
 
-**Wait** 问题说："一个以每小时10公里的速度沿着铁路轨道慢跑的慢跑者在火车引擎前340米。火车在相同方向上以每小时46公里的速度行驶。火车需要46秒才能超过慢跑者。火车的长度是多少米？"
+Wait 问题说："一个以每小时10公里的速度沿着铁路轨道慢跑的慢跑者在火车引擎前340米。火车在相同方向上以每小时46公里的速度行驶。火车需要46秒才能超过慢跑者。火车的长度是多少米？"
 
 Hmm，所以慢跑者在沿着轨道的火车引擎前340米处。由于它们朝同一个方向移动，火车在慢跑者后面340米。要超过慢跑者，火车必须覆盖那340米加上火车本身的长度？Wait, 也许我需要再思考一下这个问题。
 
-**Wait,** 实际上，当问题说火车"超过"慢跑者时，这意味着从引擎与慢跑者平齐的那一刻开始，直到最后一节车厢超过慢跑者。所以火车相对于慢跑者需要覆盖的距离是340米加上火车的长度。
+Wait, 实际上，当问题说火车"超过"慢跑者时，这意味着从引擎与慢跑者平齐的那一刻开始，直到最后一节车厢超过慢跑者。所以火车相对于慢跑者需要覆盖的距离是340米加上火车的长度。
 
 但是，初始位置：慢跑者在火车引擎前340米。所以当慢跑者在旁边跑时，火车的引擎在慢跑者后面340米？Wait, 也许我需要澄清一下。
 
 让我再想一想这个问题...
 
-**Wait,** 实际上，当慢跑者在火车引擎前340米时。所以引擎在慢跑者后面340米。Wait no, 措辞说"在引擎前340米"，所以慢跑者在引擎前340米。所以当我们从火车的角度来看时，慢跑者在火车前面340米。所以火车需要覆盖那340米加上它自己的长度才能完全超过慢跑者。
+Wait, 实际上，当慢跑者在火车引擎前340米时。所以引擎在慢跑者后面340米。Wait no, 措辞说"在引擎前340米"，所以慢跑者在引擎前340米。所以当我们从火车的角度来看时，慢跑者在火车前面340米。所以火车需要覆盖那340米加上它自己的长度才能完全超过慢跑者。
 
 等等，我把自己搞糊涂了。让我画个图...
 
-**Wait,** 实际上，如果慢跑者在火车引擎前340米，并且它们都在同一个方向上移动，那么当火车移动时，它需要覆盖初始差距加上它自己的长度才能完全超过慢跑者。
+Wait, 实际上，如果慢跑者在火车引擎前340米，并且它们都在同一个方向上移动，那么当火车移动时，它需要覆盖初始差距加上它自己的长度才能完全超过慢跑者。
 
 让我用相对速度来计算：相对速度 = 46 - 10 = 36 km/hr = 10 m/s。
 在46秒内，火车相对于慢跑者移动的距离 = 10 * 46 = 460米。
 这个距离等于火车的长度加上初始差距（340米）。所以火车的长度 = 460 - 340 = 120米。
 
-**Wait,** 这看起来不对。让我再检查一次...
+Wait, 这看起来不对。让我再检查一次...
 
 实际上，我认为我把自己搞糊涂了。让我换个思路...
 
 经过多次"Wait"和反思，模型最终得出了正确答案：[答案将是某个数值]。
-
 ```
 
 **使用过长补全惩罚来缓解奖励黑客攻击**
@@ -3315,7 +3284,7 @@ $$
 
 <HtmlEmbed src="/embeds/d3-rl-aime25-comparisons.html" />
 
-现在我们已经知道如何改进`<think>`推理模式的性能，RL训练流程中的下一步将是*联合训练*模型在两种推理模式中。然而，我们发现这是一个相当难以破解的坚果，因为每种模式都需要自己的长度惩罚，并且迄今为止的相互作用产生了不稳定的训练。这凸显了尝试对混合推理模型应用RL的主要挑战，我们可以看到它被反映在模型开发者（如Qwen）发布单独[instruction](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)和[reasoning](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507)变体的新趋势中。
+现在我们已经知道如何改进`think`推理模式的性能，RL训练流程中的下一步将是*联合训练*模型在两种推理模式中。然而，我们发现这是一个相当难以破解的坚果，因为每种模式都需要自己的长度惩罚，并且迄今为止的相互作用产生了不稳定的训练。这凸显了尝试对混合推理模型应用RL的主要挑战，我们可以看到它被反映在模型开发者（如Qwen）发布单独[instruction](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)和[reasoning](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507)变体的新趋势中。
 
 我们的实验表明，RLVR可以有效地引导推理行为，但只能借助仔细的奖励塑造和稳定性机制。鉴于这种复杂性，值得询问强化学习是否是唯一的前进路径。事实上，最近的文献中已经提出了几种更轻量的在策略优化策略，尽管它们被开源社区探索得出奇地少。让我们通过看看其中一些来结束本章。
 
@@ -3337,7 +3306,7 @@ $$
 | 算法 | 何时使用 | 权衡 | 模型大小 |
 | --- | --- | --- | --- |
 | **在线DPO** | 您可以廉价地获得偏好标签。最适合使行为与演变的分布对齐。 | 易于迭代扩展，比RL更稳定，但取决于标签质量和覆盖。在少数训练框架中受支持。 | 适合任何大小，其中偏好捕获了超越模仿的改进。 |
-| **在策略提取** | 您可以访问更强的教师模型，并希望高效地转移能力。 | 实现简单且运行便宜，但继承了教师的偏差，并且天花板受教师限制。仅在TRL和NemoRL中受支持。 | 对于小到中型模型（<30B）最有效。 |
+| **在策略提取** | 您可以访问更强的教师模型，并希望高效地转移能力。 | 实现简单且运行便宜，但继承了教师的偏差，并且天花板受教师限制。仅在TRL和NemoRL中受支持。 | 对于小到中型模型（`&lt;30B`）最有效。 |
 | **强化学习** | 您有可验证的奖励或需要多步推理/规划的任务。可以与奖励模型一起使用，但存在挑战（如奖励黑客攻击，其中模型利用奖励模型中的弱点）。 | 灵活且强大，但成本高且难以稳定；需要仔细的奖励塑造。在大多数后训练框架中受支持。 | 对于中型到大型模型（20B+）最佳，其中额外容量让它们利用结构化奖励信号。 |
 
 </Wide>
@@ -3681,7 +3650,7 @@ memcpy local GPU(benchmark) bandwidth (GB/s)
   title="Measured H100 local memory bandwidth"
 />
 
-结果显示了内存系统的一个重要特性：**对于小消息大小（< 1 MB），我们受延迟限制** 而不是带宽限制。启动内存传输的开销主导了性能，阻止我们达到峰值带宽。然而，**对于大消息大小（≥ 1 MB），我们实现了约1,500 GB/s的持续带宽**，用于读取和写入操作。
+结果显示了内存系统的一个重要特性：**对于小消息大小（`&lt;` 1 MB），我们受延迟限制** 而不是带宽限制。启动内存传输的开销主导了性能，阻止我们达到峰值带宽。然而，**对于大消息大小（≥ 1 MB），我们实现了约1,500 GB/s的持续带宽**，用于读取和写入操作。
 
 由于HBM带宽同时考虑了读取和写入，我们将它们相加以获得**3 TB/s的总双向带宽**（1,519读取 + 1,519写入），这密切验证了H100的3.35 TB/s HBM3规格。
 

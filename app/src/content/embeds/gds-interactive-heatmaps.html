@@ -270,10 +270,10 @@
       // Load data from multiple sources
       async function loadAllData() {
         const storageFiles = {
-          scratch: '/data/scratch_seq_write.json',
-          root: '/data/root_seq_write.json',
-          fsx: '/data/fsx_seq_write.json',
-          admin: '/data/admin_seq_write.json'
+          scratch: '../data/scratch_seq_write.json',
+          root: '../data/root_seq_write.json',
+          fsx: '../data/fsx_seq_write.json',
+          admin: '../data/admin_seq_write.json'
         };
 
         for (const [storage, filePath] of Object.entries(storageFiles)) {

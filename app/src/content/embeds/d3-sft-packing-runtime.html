@@ -182,12 +182,12 @@
         }
       } catch (_) { }
 
-      const DEFAULT_CSV = '/data/sft-packing-vs-no-packing-runtime.csv';
+      const DEFAULT_CSV = '../data/sft-packing-vs-no-packing-runtime.csv';
       const ensureDataPrefix = (p) => {
         if (typeof p !== 'string' || !p) return p;
-        // If path doesn't start with / or ./, add /data/ prefix
+        // If path doesn't start with / or ./, add ../data/ prefix
         if (!p.startsWith('/') && !p.startsWith('./') && !p.startsWith('../')) {
-          return `/data/${p}`;
+          return `../data/${p}`;
         }
         return p;
       };

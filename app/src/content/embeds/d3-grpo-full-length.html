@@ -204,13 +204,13 @@
         }
       } catch (_) {}
 
-      const DEFAULT_CSV = '/data/grpo/rl_reward_curves.csv';
+      const DEFAULT_CSV = '../data/grpo/rl_reward_curves.csv';
       const ensureDataPrefix = (p) => {
         if (typeof p !== 'string' || !p) return p;
         // If it starts with /, it's already absolute
         if (p.startsWith('/')) return p;
-        // Otherwise, prefix with /data/
-        return `/data/${p}`;
+        // Otherwise, prefix with ../data/
+        return `../data/${p}`;
       };
       const normalizeInput = (inp) => Array.isArray(inp)
         ? inp.map(ensureDataPrefix)
@@ -661,14 +661,14 @@
 
       // Load both datasets
       const REWARD_PATHS = [
-        '/data/grpo/rl_reward_full_length.csv',
+        '../data/grpo/rl_reward_full_length.csv',
         './assets/data/grpo/rl_reward_full_length.csv',
         '../assets/data/grpo/rl_reward_full_length.csv',
         '../../assets/data/grpo/rl_reward_full_length.csv'
       ];
 
       const LENGTH_PATHS = [
-        '/data/grpo/rl_mean_terminated_length_full_length.csv',
+        '../data/grpo/rl_mean_terminated_length_full_length.csv',
         './assets/data/grpo/rl_mean_terminated_length_full_length.csv',
         '../assets/data/grpo/rl_mean_terminated_length_full_length.csv',
         '../../assets/data/grpo/rl_mean_terminated_length_full_length.csv'
