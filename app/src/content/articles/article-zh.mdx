@@ -849,7 +849,7 @@ RoPE（旋转位置嵌入）是一种位置编码方法，通过根据序列中�
 <HtmlEmbed
 src="embeds/d3-line-chart.html"
 config={{
-dataUrl: "./data/attention_loss.csv",
+dataUrl: "../data/attention_loss.csv",
 xDomain: [0, 45e9],
 yDomain: [2.1, 2.7],
 smoothing: true,
@@ -862,7 +862,7 @@ title: "注意力损失"
 <HtmlEmbed
 src="embeds/d3-six-line-charts.html"
 config={{
-dataUrl: "./data/attention_evals.csv",
+dataUrl: "../data/attention_evals.csv",
 charts: [
 { title: "HellaSwag", metric: "hellaswag" },
 { title: "MMLU", metric: "mmlu" },
@@ -960,7 +960,7 @@ model_config:
 <HtmlEmbed
 src="embeds/d3-line-chart.html"
 config={{
-dataUrl: "./data/doc-masking_loss.csv",
+dataUrl: "../data/doc-masking_loss.csv",
 xDomain: [0, 45e9],
 yDomain: [2.1, 2.7],
 smoothing: true,
@@ -973,7 +973,7 @@ title: "文档掩码损失"
 <HtmlEmbed
 src="embeds/d3-six-line-charts.html"
 config={{
-dataUrl: "./data/doc-masking_evals.csv",
+dataUrl: "../data/doc-masking_evals.csv",
 charts: [
 { title: "HellaSwag", metric: "hellaswag" },
 { title: "MMLU", metric: "mmlu" },
@@ -1163,7 +1163,7 @@ dot_product(RoPE(x, m), RoPE(y, n)) = Σₖ [xₖ * yₖ * cos((m-n) * θₖ)]
 <HtmlEmbed
 src="embeds/d3-line-chart.html"
 config={{
-dataUrl: "./data/nope_loss.csv",
+dataUrl: "../data/nope_loss.csv",
 xDomain: [0, 45e9],
 yDomain: [2.1, 2.7],
 smoothing: true,
@@ -1176,7 +1176,7 @@ title: "NoPE损失"
 <HtmlEmbed
 src="embeds/d3-six-line-charts.html"
 config={{
-dataUrl: "./data/nope_evals.csv",
+dataUrl: "../data/nope_evals.csv",
 charts: [
 { title: "HellaSwag", metric: "hellaswag" },
 { title: "MMLU", metric: "mmlu" },
@@ -3637,7 +3637,7 @@ memcpy local GPU(benchmark) bandwidth (GB/s)
 <HtmlEmbed 
   src="embeds/d3-line-chart.html" 
   config={{ 
-    dataUrl: "./data/device_local_copy_bandwidth.csv",
+    dataUrl: "../data/device_local_copy_bandwidth.csv",
     xColumn: "message_size",
     yColumn: "bandwidth",
     runColumn: "run_name",
