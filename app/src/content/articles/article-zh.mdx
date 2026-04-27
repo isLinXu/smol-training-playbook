@@ -2778,21 +2778,21 @@ RL当然并不新鲜。OpenAI和其他实验室严重依赖来自人类反馈的
 ```mermaid
 flowchart LR
     subgraph Turn1 ["Turn 1"]
-        T1_Input["**INPUT**"]
-        T1_Output["**OUTPUT**"]
+        T1_Input["INPUT"]
+        T1_Output["OUTPUT"]
     end
 
     subgraph Turn2 ["Turn 2"]
-        T2_Input["**INPUT**"]
-        T2_Output["**OUTPUT**"]
+        T2_Input["INPUT"]
+        T2_Output["OUTPUT"]
     end
 
     subgraph Turn3 ["Turn 3"]
-        T3_Input["**INPUT**"]
-        T3_Output1["**OUTPUT**"]
-        Reasoning["**REASONING**"]
-        T3_Output2_Top["**OUTPUT**"]
-        TruncatedOutput["**TRUNCATED OUTPUT**"]
+        T3_Input["INPUT"]
+        T3_Output1["OUTPUT"]
+        Reasoning["REASONING"]
+        T3_Output2_Top["OUTPUT"]
+        TruncatedOutput["TRUNCATED OUTPUT"]
     end
 
     T1_Input --> T2_Input
@@ -2805,7 +2805,7 @@ flowchart LR
     T3_Output1 --> Reasoning
     Reasoning --> T3_Output2_Top
 
-    T3_Output2_Top -->|CONTEXT WINDOW ✂️| TruncatedOutput
+    T3_Output2_Top -->|CONTEXT WINDOW | TruncatedOutput
 
     classDef input fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
     classDef output fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
@@ -3318,17 +3318,17 @@ $$
 ```mermaid
 flowchart LR
     subgraph Flagship ["Flagship Models"]
-        Base1["Base Models"] --> Stage1["Stage 1: <br/>Long CoT Cold Start"]
-        Stage1 --> Stage2["Stage 2: <br/>Reasoning RL"]
-        Stage2 --> Stage3["Stage 3: <br/>Thinking Mode Fusion"]
-        Stage3 --> Stage4["Stage 4: <br/>General RL"]
-        Stage4 --> FlagshipOut["Qwen3-235B-A22B<br/>Qwen3-32B"]
+        Base1["Base Models"] --> Stage1["Stage 1: Long CoT Cold Start"]
+        Stage1 --> Stage2["Stage 2: Reasoning RL"]
+        Stage2 --> Stage3["Stage 3: Thinking Mode Fusion"]
+        Stage3 --> Stage4["Stage 4: General RL"]
+        Stage4 --> FlagshipOut["Qwen3-235B-A22B / Qwen3-32B"]
     end
     
     subgraph Lightweight ["Lightweight Models"]
-        Base2["Base Models"] --> Distillation["Strong-to-Weak <br/>Distillation"]
+        Base2["Base Models"] --> Distillation["Strong-to-Weak Distillation"]
         FlagshipOut --> Distillation
-        Distillation --> LightweightOut["Qwen3-30B-A3B <br/>14B/8B/4B/1.7B/0.6B"]
+        Distillation --> LightweightOut["Qwen3-30B-A3B / 14B/8B/4B/1.7B/0.6B"]
     end
     
     classDef flagshipStage fill:#ffd0c5
