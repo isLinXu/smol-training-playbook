@@ -543,7 +543,7 @@
       // Load real data from JSON
       async function loadData() {
         try {
-          const response = await fetch('/data/nccl-multinode-bandwidth.json');
+          const response = await fetch('../data/nccl-multinode-bandwidth.json');
           const jsonData = await response.json();
 
           data = jsonData;

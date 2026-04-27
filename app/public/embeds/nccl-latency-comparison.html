@@ -550,7 +550,7 @@
       async function loadData() {
         try {
           console.log('Loading NCCL latency data...');
-          const response = await fetch('/data/nccl-multinode-latency.json');
+          const response = await fetch('../data/nccl-multinode-latency.json');
           const jsonData = await response.json();
 
           console.log('Loaded data:', jsonData);

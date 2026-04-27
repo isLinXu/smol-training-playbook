@@ -204,7 +204,7 @@
         }
       } catch (_) {}
 
-      const DEFAULT_CSV = '/data/rl_reward_curves.csv';
+      const DEFAULT_CSV = '../data/rl_reward_curves.csv';
       const ensureDataPrefix = (p) => {
         if (typeof p !== 'string' || !p) return p;
         // If it starts with /, it's already absolute
@@ -661,14 +661,14 @@
 
       // Load both datasets
       const REWARD_PATHS = [
-        '/data/rl_reward_full_length.csv',
+        '../data/rl_reward_full_length.csv',
         './assets/data/rl_reward_full_length.csv',
         '../assets/data/rl_reward_full_length.csv',
         '../../assets/data/rl_reward_full_length.csv'
       ];
 
       const LENGTH_PATHS = [
-        '/data/rl_mean_terminated_length_full_length.csv',
+        '../data/rl_mean_terminated_length_full_length.csv',
         './assets/data/rl_mean_terminated_length_full_length.csv',
         '../assets/data/rl_mean_terminated_length_full_length.csv',
         '../../assets/data/rl_mean_terminated_length_full_length.csv'

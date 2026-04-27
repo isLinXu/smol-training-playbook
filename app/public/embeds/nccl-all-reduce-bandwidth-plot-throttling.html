@@ -158,7 +158,7 @@
       // Load data
       async function loadData() {
         try {
-          const response = await fetch('/data/nccl-all-reduce-throttling-bandwidth.json');
+          const response = await fetch('../data/nccl-all-reduce-throttling-bandwidth.json');
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           data = await response.json();
           console.log('NCCL throttling data loaded:', data);
