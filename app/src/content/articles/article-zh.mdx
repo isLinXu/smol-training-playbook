@@ -5830,8 +5830,13 @@ $$
 - **附录 E — Hugging Face 实现生态（TRL / Accelerate / Transformers / PEFT）**
 - **附录 F — 大训练栈实现生态（Megatron-LM / NeMo / Nanotron）**
 - **附录 G — LLM 训练实践与踩坑经验库（数据/超参/稳定性/吞吐/评测）**
+- **附录 H — 扩展阅读清单（按 Playbook 章节组织的论文与落地提示）**
+- **附录 I — Runbook 系列（排障 / 拓扑 / Batch 计算 / 故障模式字典）**
+- **附录 J — 实践模板（对齐验收 / 数据审计 / 污染抽检 / RM 偏置 Checklist）**
+- **附录 K — 代码与配置模板（审计脚本 / 评测结果 / Run Manifest）**
 
 ---
+
 
 ### 附录 A — 对齐与偏好优化（RLHF / RM / DPO 家族 / Online）
 
@@ -7845,6 +7850,2250 @@ python tools/acceptance_gate.py \
   - `<metric>_delta = after - before`  
   - `<metric>_ratio = after / before`（用于吞吐等相对指标）
 
+
+---
+
+### 附录 H — 扩展阅读清单（按 Playbook 章节组织）
+
+> 以下阅读清单按 Playbook 的大章节（Training Compass / Pretraining / Post-training / Evaluation / Safety / VLM）映射；每篇给出**阅读价值**与**落地提示**（偏工程复现）。
+
+---
+
+
+> 适用场景：你在按 playbook 实操“从预训练→后训练→评测→安全→多模态”的完整链路，希望补齐每个关键决策背后的代表性论文与可复现经验。
+>
+> 组织方式：按 playbook 的大章节（Training Compass / Pretraining / Post-training / Evaluation / Safety / VLM）映射；每篇给出**阅读价值**与**落地提示**（偏工程复现）。
+
+---
+
+#### 0. 建议使用方式（如何读这份清单）
+
+- 如果你是“要落地训练流程”：优先读 **A（后训练对齐）→ C（评测）→ D（安全）**，再回头补 **B（数据配方）**。
+- 如果你是“要做小模型/预算受限”：优先读 **DPO/ORPO/SimPO + IFEval + length-controlled AlpacaEval**，少走 RLHF(PPO) 的弯路。
+- 如果你是“要做 VLM 并压幻觉”：优先读 **E2/E3（POPE/HallusionBench + Fact-RLHF/RLHF-V + Robust Instruction Tuning）**。
+
+---
+
+#### 1. Training Compass（Why/What）：把目标翻译成训练与评测约束
+
+##### 1.1 “为什么训练”与“你其实不需要从零训练”的判断
+- **The Smol Training Playbook（引言 + Training Compass）**  
+  阅读价值：把“研究/生产/治理”三类动机拆清楚，给出决策树式的训练启动条件。  
+  落地提示：把目标写成 3 个可量化指标（能力/成本/治理），否则后续任何 ablation 都会失焦。
+
+> 配套建议：你可以在这里就确定后续评测的“主 KPI”（如：IFEval + MT-Bench/Arena + 安全拒答率 + VLM 幻觉指标），避免只盯训练 loss。
+
+---
+
+#### 2. Pretraining：数据配方（Data Recipe）与数据工艺
+
+> Playbook 的一个核心观点是：**数据质量与数据混合策略**经常比“微小结构改动”更决定上限；并且“消融设置”必须与最终训练目标一致。
+
+##### 2.1 Web 语料精选：过滤、去重、教育化（FineWeb/FineWeb-Edu）
+- **The FineWeb Datasets: Decanting the Web…（FineWeb / FineWeb-Edu）**  
+  阅读价值：系统讲清楚从 Common Crawl 到高质量语料的 pipeline（过滤、去重、消融验证）。  
+  落地提示：至少做两类去重：**近重复（MinHash/SimHash）** + **训练/评测污染（n-gram 或 embedding 去污染）**。
+
+##### 2.2 “教材质量数据”与合成数据的边界
+- **Textbooks Are All You Need（phi-1）**  
+  阅读价值：解释“小模型 + 教材质量数据/合成练习”如何带来能力跃迁。  
+  落地提示：合成数据要避免“同质化模板”；要做**覆盖面控制**（概念、难度、题型）。
+
+##### 2.3 代码数据与治理：许可、PII、opt-out
+- **The Stack: 3 TB of permissively licensed source code**  
+  阅读价值：代码数据的治理与构建方法（许可筛选、PII 风险、移除机制）。  
+  落地提示：把“许可/隐私/移除请求”写进数据版本元信息，否则无法在生产侧做合规审计。
+
+##### 2.4 小模型数据中心主义：当公开数据“不够用”时怎么办？
+- **SmolLM2: When Smol Goes Big — Data-Centric Training of a Small Language Model**  
+  阅读价值：展示“专项数据集不足→自己构建（FineMath/Stack-Edu/SmolTalk）→分阶段混合”的实际路径。  
+  落地提示：专项数据建议**分阶段引入**（而不是从第 0 步一股脑混进来），否则容易训练早期被小子域牵引。
+
+---
+
+#### 3. Post-training：RLHF/DPO/GRPO 与“可复现”的对齐训练套路
+
+##### 3.1 RLHF 经典三段式（了解复杂度与失败模式）
+- **Training language models to follow instructions with human feedback（InstructGPT）**  
+  阅读价值：SFT→奖励建模→PPO 的经典工程基线。  
+  落地提示：把 SFT 视为“对齐的底座”；很多偏好优化方法都默认 SFT 后才能稳定工作。
+- **Proximal Policy Optimization Algorithms（PPO）**  
+  阅读价值：理解 PPO 的稳定性来自“保守更新/约束”，也解释了为什么调参成本高。  
+  落地提示：如果你没有强 RM 和足够采样预算，优先考虑 DPO 系离线方法。
+
+##### 3.2 DPO 系：更贴近“训练脚本可复用”的离线偏好优化
+- **DPO: Direct Preference Optimization**  
+  阅读价值：把 RLHF（RM+RL）折叠成闭式目标，训练更稳定、实现更简单。  
+  落地提示：关键超参通常集中在 **β（偏好强度/温度）** 与学习率；并且要监控“长度偏置”与“拒答过拟合”。
+- **ORPO: Monolithic Preference Optimization without Reference Model**  
+  阅读价值：把偏好项并到 SFT 里，减少 reference model 依赖。  
+  落地提示：对资源受限场景很友好，但要警惕“只学会惩罚 rejected 风格”导致的表达单一化。
+- **SimPO: Simple Preference Optimization with a Reference-Free Reward**  
+  阅读价值：进一步简化并强调可复现的调参经验。  
+  落地提示：优先固定总 batch size，再扫 learning rate / β / margin 类超参，避免多维同时漂移。
+- **RRHF: Rank Responses to Align… without tears（选读）**  
+  阅读价值：ranking loss / best-of-n 学习视角，常作为轻量替代。  
+  落地提示：效果强依赖采样质量与候选多样性；采样策略要作为“第一等公民”做 ablation。
+- **KTO: Model Alignment as Prospect Theoretic Optimization（选读）**  
+  阅读价值：从“人类效用/损失偏置”解释对齐目标，帮助你选择 loss 家族。  
+  落地提示：更适合做“为什么这个 loss 对我的偏好分布更好”的理论对照，而不是第一天就上手复现。
+
+##### 3.3 GRPO：偏推理/数学的 RL 优化（playbook 提到的后训练选项之一）
+- **DeepSeekMath: …（提出/使用 GRPO）**  
+  阅读价值：给出 GRPO 相对 PPO 的资源优势动机与工程实现线索。  
+  落地提示：如果 reward 是 outcome-level（整段答案得分），GRPO 的“组内相对基线”对降低方差很关键。
+
+##### 3.4 蒸馏 / 自训练：对齐做成“迭代工艺”
+- **Zephyr: Direct Distillation of LM Alignment**  
+  阅读价值：teacher 生成偏好数据 + dDPO 的可复现路径（开源社区常用套路）。  
+  落地提示：teacher 的 judge/prompt 要版本化；否则你无法解释“为何这次对齐变了”。
+- **SPIN: Self-Play Fine-Tuning**  
+  阅读价值：self-play 迭代生成训练信号，讨论为何迭代优于一次性合成。  
+  落地提示：必须配套“回归集 + 回滚机制”，防止自训练产生风格塌缩或偏差累积。
+- **RLAIF vs. RLHF（选读）**  
+  阅读价值：当你用强模型生成偏好标签替代人类标注时，如何规模化与评估偏差。  
+  落地提示：建议做“人类小样本校准集”，定期检查 RLAIF 的偏好漂移。
+
+---
+
+#### 4. Evaluation：对齐评测、去偏、以及“评测即训练信号”
+
+##### 4.1 指令遵循（硬约束回归集）
+- **IFEval: Instruction-Following Evaluation**  
+  阅读价值：把 instruction-following 拆成可验证约束（可自动判分、可做回归）。  
+  落地提示：把 IFEval 类规则扩展成你的“产品约束集”（格式、长度、关键词、结构等），并在每次对齐后做回归。
+
+##### 4.2 偏好评测：LLM-as-a-judge 与人类偏好近似
+- **MT-Bench & Chatbot Arena（LLM-as-a-Judge）**  
+  阅读价值：系统分析 LLM-as-judge 与人类一致性；是对齐评测的工业基线之一。  
+  落地提示：judge prompt/版本必须固定；并监控“长度偏置、礼貌偏置、模型自嗨偏置”。
+- **AlpacaEval（仓库条目，含引用信息）**  
+  阅读价值：快速、便宜、可复现的 pairwise 偏好评测工具链。  
+  落地提示：把它当“开发指标”，不要当“唯一真理”。
+- **Length-Controlled AlpacaEval**  
+  阅读价值：专门处理自动评测的“长度偏置”等混淆变量。  
+  落地提示：你做 DPO/ORPO/SimPO 时极容易无意间提升“输出更长”从而刷分，必须做 LC 去偏。
+
+##### 4.3 通用能力面板（能力覆盖面）
+- **HELM: Holistic Evaluation of Language Models（选读）**  
+  阅读价值：能力×风险×指标的分类学，适合构建“组织级评测面板”。  
+  落地提示：把你关心的场景映射到 HELM 风格 taxonomy，可减少“只在一个榜单上优化”的风险。
+- **MMLU（基础能力，选读）**  
+  阅读价值：常用通识能力面板。  
+  落地提示：把它更多当“训练前后能力不掉太多”的守门员，而不是对齐指标。
+
+---
+
+#### 5. Safety：安全目标、数据与红队化评测
+
+##### 5.1 原则驱动 / AI 反馈
+- **Constitutional AI**  
+  阅读价值：用原则列表 + 自我批评/修订来扩展监督，减少对人工标注的依赖。  
+  落地提示：原则（constitution）本身要版本化与覆盖面测试；否则不同团队会把“安全”理解成不同东西。
+
+##### 5.2 约束优化：把 harmlessness 当成 cost
+- **Safe RLHF**  
+  阅读价值：将 helpfulness/harmlessness 解耦成 reward/cost 并做约束优化，是非常工程化的一条线。  
+  落地提示：务必同时报告 reward 与 cost 的曲线，否则很容易“安全靠拒答刷出来”。
+
+##### 5.3 安全数据：解耦 helpful/harmless 的标注
+- **BeaverTails**  
+  阅读价值：提供可用于安全对齐与内容审核的偏好数据，并明确区分 helpfulness/harmlessness。  
+  落地提示：可以用它构建“安全回归集”，每次对齐后做分类别（harm taxonomy）回归。
+
+##### 5.4 红队：用模型生成测试用例
+- **Red Teaming Language Models with Language Models**  
+  阅读价值：LM 生成对抗/测试用例的 pipeline，可规模化发现 failure case。  
+  落地提示：红队生成器、判别器（toxicity/offensive classifier）都要版本化；否则历史对比失真。
+
+---
+
+#### 6. VLM 对齐与幻觉：训练方法 + 评测基准
+
+##### 6.1 VLM 指令对齐基线
+- **LLaVA: Visual Instruction Tuning**  
+  阅读价值：两阶段（特征对齐→端到端指令微调）的“现代 VLM 指令对齐范式”。  
+  落地提示：不要只看综合分；要拆出“感知/识别/推理/遵循指令”的分项评测。
+
+##### 6.2 多模态评测面板（先把“测什么”定下来）
+- **MME: A Comprehensive Evaluation Benchmark for MLLMs**  
+  阅读价值：较系统的 MLLM 能力面板（perception + cognition）。  
+  落地提示：MME 更像“能力体检”，而 POPE/HallusionBench 更像“幻觉专项 CT”，两者都需要。
+
+##### 6.3 幻觉评测（建议至少选 2 个做固定回归）
+- **POPE: Evaluating Object Hallucination in LVLMs**  
+  阅读价值：把 object hallucination 评测转成更稳定的 yes/no polling。  
+  落地提示：适合做自动化回归；并能定位“模型爱凭共现猜对象”的倾向。
+- **HallusionBench**  
+  阅读价值：诊断型套件，强调“视觉错觉 + 语言幻觉”的纠缠问题。  
+  落地提示：更适合做定性剖析与 error taxonomy，而不只是一个分数。
+
+##### 6.4 训练侧“治幻觉”（把评测变成训练信号）
+- **Factually Augmented RLHF for MLLMs（Fact-RLHF）**  
+  阅读价值：把 RLHF 引入 VLM，对齐到更 grounded、减少 hallucination。  
+  落地提示：要重点关注偏好标注/奖励信号如何定义“更少幻觉”，否则会变成“更谨慎/更拒答”。
+- **RLHF-V**  
+  阅读价值：细粒度纠错式反馈，强调少量标注也能显著降幻觉。  
+  落地提示：小样本有效的前提通常是“反馈信号结构化且高信息密度”。
+- **Robust Instruction Tuning for LMMs（LRV-Instruction）**  
+  阅读价值：用正负样本与鲁棒指令数据显著缓解幻觉，并提出 GPT-4 辅助评测（GAVIE）。  
+  落地提示：正负样本比例是关键旋钮；并建议你把“负样本生成策略”纳入版本管理。
+
+---
+
+#### 7. 一套可执行的“最小闭环”建议（从 playbook 到实验矩阵）
+
+> 目标：用最少实验搭起“训练-评测-回归-安全-多模态”闭环，后续再扩展。
+
+##### 7.1 LLM（文本）最小闭环（建议顺序）
+1. **SFT baseline**（对齐底座）→ 用 **IFEval** 做硬约束回归  
+2. **DPO 或 ORPO 或 SimPO**（三选一）→ 用 **LC AlpacaEval + MT-Bench** 做偏好评测  
+3. **安全增强**：Safe RLHF 或 Constitutional AI 路线（二选一）→ 红队回归（Red Teaming…）  
+
+##### 7.2 VLM（多模态）最小闭环（建议顺序）
+1. 指令对齐基线：参考 **LLaVA** 两阶段思路  
+2. 能力体检：**MME**  
+3. 幻觉专项回归：**POPE + HallusionBench**  
+4. 幻觉对齐训练：**Fact-RLHF / RLHF-V / LRV-Instruction**（三选一作为第一条落地路线）
+
+---
+
+#### 8. 追加可选：幻觉（文本）评测补充
+- **HaluEval**（LLM 幻觉评测）  
+  阅读价值：大规模 hallucination evaluation，适合把“是否胡编”做成回归项。  
+  落地提示：可作为 RAG/事实性任务的通用体检项之一（但仍要结合你的领域数据）。
+
+---
+
+#### 附：速读清单（按 2 天/1 周安排）
+
+##### 2 天版（只抓主干）
+- InstructGPT → DPO → IFEval → MT-Bench/Arena → Length-Controlled AlpacaEval → Safe RLHF → Red Teaming…  
+- VLM 方向：LLaVA → POPE → HallusionBench → Fact-RLHF
+
+##### 1 周版（加上数据配方与多模态面板）
+- FineWeb → SmolLM2 → The Stack / Textbooks Are All You Need  
+- ORPO/SimPO/RRHF/KTO（择 2-3 篇）  
+- MME + RLHF-V + LRV-Instruction（配合自己的数据做一次小规模消融）
+
+### 附录 I — Runbook 系列（排障 / 拓扑 / Batch 计算 / 故障模式字典）
+
+> 以下 4 份 Runbook 把"经验"变成可执行 SOP，当训练"跑不起来 / 跑不稳 / 跑不快"时，按顺序参考。
+
+---
+
+#### I1. 排障 Runbook（Megatron / NeMo / Nanotron 通用）
+
+
+> 目标：当训练“跑不起来 / 跑不稳 / 跑不快”时，给你一个**可复制的排障顺序**。  
+> 核心原则：**先缩小到最小复现**，再逐步加回复杂度；每次只改一个主变量。
+
+---
+
+#### 0. 最小复现三板斧（任何问题都先做）
+
+1) **mock data + 最小模型 + 2 GPU**：排除数据/I/O/CPU 干扰  
+2) **固定并行拓扑**：排障期间不要同时改 TP/PP/CP/EP  
+3) **固定精度**：先 BF16 稳定，再 FP8（或其它低精度）
+
+---
+
+#### 1. NCCL timeout / 进程卡死
+
+##### 1.1 典型症状
+- 卡在 all-reduce / broadcast / barrier
+- `NCCL watchdog timeout`、某些 rank 退出而其他 rank 等待
+
+##### 1.2 先看什么（按顺序）
+1) **是否有 rank OOM**：一个 rank OOM 退出会导致其它 rank 等通信  
+2) **是否是数据层卡住**：dataloader 卡死也会表现为“像通信卡死”  
+3) **是否 TP 跨节点**：TP 跨节点极容易因拓扑/网络差异导致不稳定
+
+##### 1.3 典型修复
+- OOM：降低 `MBS` / `seq`，打开 activation checkpointing；先回退 BF16  
+- 数据层：先用 mock data 验证训练 loop；预 tokenize/预 pack，减少 CPU 开销  
+- 通信层：让 TP 尽量节点内；跨节点优先用 DP/PP；更换节点/检查 IB 状态
+
+---
+
+#### 2. 吞吐很差 / 扩容不线性 / 吞吐抖动大
+
+##### 2.1 典型症状
+- tokens/s 随扩容反而下降
+- step time 方差很大，GPU utilization 上下跳
+
+##### 2.2 排查顺序（务必按这个顺序）
+1) **数据是否瓶颈**：`dataloader time` 是否占比高？是否抖动？  
+2) **PP bubble 是否巨大**（PP>1 场景）：micro-batch 不够导致 pipeline 空泡  
+3) **通信是否瓶颈**：TP all-reduce、EP A2A、CP 通信是否异常高  
+
+##### 2.3 最常见修复
+- 数据瓶颈：预处理（tokenize/pack）前置；提高本地缓存（NVMe）；合理设置 workers/prefetch  
+- PP bubble：提高 `num_microbatches`（通常通过增大 DP×GA 或适当降低 PP 深度）  
+- 通信瓶颈：让 TP 节点内；调整 TP/PP；引入 overlap（如 TE userbuffers）；必要时降低 CP/EP
+
+---
+
+#### 3. loss spike / NaN / divergence（尤其在 FP8、长上下文、数据配方切换后）
+
+##### 3.1 先做四步（强烈推荐）
+1) **回退 BF16**：确认问题是否由低精度引起  
+2) **固定数据配方**：小数据跑 200–1000 steps，确认稳定性  
+3) **检查恢复点连续性**：是否“恢复后立刻 spike”（checkpoint 不一致常见信号）  
+4) **检查 seq length/rope 配置**：长上下文最常踩坑点
+
+##### 3.2 常见修复
+- 重新调 warmup（数据/seq 改了，warmup 往往需要重调）  
+- 降学习率 / 加 gradient clipping  
+- FP8：先 BF16 跑到稳定再切；检查 Transformer Engine 的缩放/溢出策略
+
+---
+
+#### 4. over-refusal（过度拒答）与“安全刷分”
+
+> 这类问题常被误认为“安全变好”。实际上是模型见到敏感词就拒答，严重损害可用性。
+
+##### 4.1 诊断信号
+- HarmBench/JBB 指标变好，但用户满意度下降
+- refusal rate 明显上升
+
+##### 4.2 必须配套的守门评测
+- XSTest（测 exaggerated safety）：https://arxiv.org/abs/2308.01263  
+- Do-Not-Answer（危险集合）：https://arxiv.org/abs/2308.13387  
+
+##### 4.3 常见修复策略
+- 安全训练改为“约束式”（reward/cost）而非单纯加拒答数据  
+- 引入 guard（WildGuard/Llama Guard），把安全压力从主模型训练转到系统层
+
+---
+
+#### 5. checkpoint 恢复异常（loss 不连续 / 恢复后变慢 / 训练不一致）
+
+##### 5.1 常见原因
+- 并行拓扑（TP/PP/CP/EP）变了但还用旧 ckpt  
+- optimizer state 未完整恢复（分片保存/加载）  
+- dataloader 采样器状态没恢复（导致训练分布变化）
+
+##### 5.2 最小化修复路径
+1) 明确区分：**训练恢复 ckpt（分片）** vs **发布/互操作 ckpt（聚合/HF）**  
+2) 恢复后先跑短 sanity run（50–200 steps），确认 loss 连续  
+3) 统一随机种子与 data cursor（或显式保存 sampler 状态）
+
+---
+
+#### 6. 一句话原则（贴在集群墙上）
+
+- **先验证正确性（能跑稳）→ 再优化性能（跑快）→ 最后扩规模（跑大）**  
+- **每次只改一个主变量**：拓扑 / 精度 / seq / 数据配方 / 学习率  
+- **任何“提升”都要同时看守门指标**：长度偏置、拒答率、安全回归、污染检测
+
+
+
+---
+
+#### I2. 并行拓扑沟通手册（TP / PP / DP / SP / CP / EP）
+
+
+> 目标：把并行维度从“参数数字”变成“团队能画出来、算得出来、改得出来”的共同语言。
+
+---
+
+#### 1. 并行维度字典（最短解释）
+
+- **DP（Data Parallel）**：复制一份模型，分数据；训练时做梯度 all-reduce  
+- **TP（Tensor Parallel）**：把层内张量切开（QKV/FFN 等），需要频繁 all-reduce  
+- **PP（Pipeline Parallel）**：把层按 depth 切成 stages，stage 间点对点通信  
+- **SP（Sequence Parallel）**：通常与 TP 配合，把 activation 沿序列维分摊（降低内存/通信压力）  
+- **CP（Context Parallel）**：长上下文训练，把序列 token 均分到多个 GPU（通信更复杂但可训练超长上下文）  
+- **EP（Expert Parallel）**：MoE 专用，把 experts 分布到不同 GPU（涉及 all-to-all dispatch）
+
+常用关系式：
+
+`DP = world_size / (TP × PP × CP × EP …)`
+
+---
+
+#### 2. 为什么“TP 尽量节点内、PP 更适合跨节点”？
+
+直觉：
+- TP 通信频繁（层内 all-reduce），对带宽/延迟更敏感 → 尽量走节点内 NVLink/NVSwitch  
+- PP 通信是 stage 间激活传递（点对点） → 更容易跨节点控制，尤其当节点间 IB 很强
+
+---
+
+#### 3. 拓扑画法模板（每节点 8 卡）
+
+默认：每节点 GPU 编号 0-7。
+
+##### 3.1 示例：world=16（2 节点），TP=4，PP=2，DP=2
+
+TP groups（节点内）：
+- Node0：`[0,1,2,3]`、`[4,5,6,7]`
+- Node1：`[0,1,2,3]`、`[4,5,6,7]`
+
+Pipeline stages（跨节点连接 TP group）：
+```
+Replica A (DP=1): Stage0=Node0[0-3]  -> Stage1=Node1[0-3]
+Replica B (DP=1): Stage0=Node0[4-7]  -> Stage1=Node1[4-7]
+```
+
+读图要点：
+- DP=2 表示“有两份 pipeline 副本”
+- TP 通信留在节点内，PP 通信跨节点
+
+---
+
+#### 4. micro-batch 与 PP bubble：为什么 PP 会让吞吐突然变差？
+
+当 PP>1 时，pipeline 需要足够多 micro-batches 才能进入稳态（1F1B）。  
+如果 micro-batch 数太少，warmup/flush 占比很高，表现为：
+
+- step time 变长
+- GPU utilization 下降
+- 看起来像“PP 越深越慢”
+
+经验法则（起步）：
+- `num_microbatches` 至少是 `PP × (4~8)`  
+- `num_microbatches` 通常与 `DP × GA` 同阶（在固定 GBS/MBS 下）
+
+---
+
+#### 5. CP（长上下文）与 EP（MoE）什么时候加入？
+
+##### 5.1 CP（Context Parallel）
+当 seq length 达到 32k/64k/128k 这类量级时，哪怕模型参数不大，activation 也会爆。  
+CP 的收益是“让长序列能训”，代价是“通信复杂与不稳定风险增加”。
+
+建议引入顺序：
+1) 先在短 seq 跑稳（4k/8k）  
+2) 再逐步拉 seq，同时开 activation checkpointing  
+3) 最后引入 CP（并把通信/超时作为一级监控指标）
+
+##### 5.2 EP（Expert Parallel, MoE）
+MoE 的收益主要是“计算更大但参数稀疏”，训练更省算力/更高吞吐。  
+代价是 token dispatch 带来的 all-to-all 通信和负载不均。
+
+建议：
+- EP 初期先小规模验证（world 小一点，观察 A2A 时间与负载均衡）  
+- 建立“token 分配统计”与“expert load”监控，否则很难解释吞吐抖动
+
+
+
+---
+
+#### I3. Batch / Micro-batch / GA 计算手册
+
+
+> 目的：把“能算清楚 batch”变成可复制模板，避免训练中最常见的三类事故：  
+> 1) GBS 算错导致学习率/收敛异常；2) micro-batches 太少导致 PP bubble 巨大；3) DP/GA 与吞吐、稳定性之间的权衡不清晰。
+
+---
+
+#### 0. 统一符号（建议全项目固定这套）
+
+- `world_size`：总 GPU 数  
+- `TP, PP, CP, EP`：并行维度  
+- `DP = world_size / (TP × PP × CP × EP …)`  
+- `MBS`：micro batch size（每个 DP rank 的“每次前向”样本数）  
+- `GA`：gradient accumulation steps（每次更新累积多少 micro-step）  
+- `GBS`：global batch size（一次参数更新看到的总样本数）
+
+核心公式（大多数训练栈一致）：
+
+> **GBS = MBS × DP × GA**
+
+补充：PP 的影响主要体现在 **吞吐**（pipeline bubble）而不是 GBS 公式本身。
+
+---
+
+#### 1. 从“你想要的 GBS”反推 GA（最常用）
+
+给定 `GBS, MBS, DP`：
+
+> **GA = GBS / (MBS × DP)**
+
+要求：GA 必须是整数（或训练栈允许自动向上取整并调整 GBS；建议显式控制）。
+
+##### 1.1 快速 sanity check
+
+- 如果 GA > 128：很可能会导致训练更新过慢、日志延迟大、且对梯度噪声更敏感  
+  - 优先尝试：增大 DP（更多卡）或增大 MBS（更多显存/重算）  
+- 如果 GA < 2：可能更新过于频繁、梯度噪声大（尤其小模型/小数据）  
+
+---
+
+#### 2. PP>1 时：`num_microbatches` 与 PP bubble 的关系（吞吐关键）
+
+很多训练栈把“每次更新的 micro-batch 数”称为 `num_microbatches`（或同义字段）。
+
+在固定 `GBS, MBS` 时，常见关系：
+
+> **num_microbatches ≈ DP × GA**
+
+经验法则（起步建议）：
+
+- **num_microbatches ≥ PP × 8**（保守稳定）  
+- 至少也要 **num_microbatches ≥ PP × 4**（否则 PP bubble 往往很明显）
+
+当 `num_microbatches` 太小：
+- pipeline warmup/flush 占比高（PP bubble 大）
+- 看起来像“PP 越深越慢”
+
+---
+
+#### 3. 典型拓扑的“可抄作业计算表”（按规模）
+
+> 说明：下面所有示例默认 `CP=EP=1`（即未启用长上下文 CP 与 MoE EP）。  
+> 如果启用 CP/EP，先按 `DP = world/(TP×PP×CP×EP)` 重算，再代入表格方法。
+
+##### 3.1 world=8（单节点）
+
+###### 配方 A：TP=1, PP=1 → DP=8（最省心）
+
+| 目标 GBS | MBS=1 时 GA | MBS=2 时 GA | 备注 |
+|---:|---:|---:|---|
+| 256 | 32 | 16 | 常见 SFT 起步 |
+| 512 | 64 | 32 | |
+| 1024 | 128 | 64 | GA 偏大，注意吞吐与更新频率 |
+
+###### 配方 B：TP=2, PP=1 → DP=4（吞吐更好、显存更省）
+
+| 目标 GBS | MBS=1 时 GA | MBS=2 时 GA | 备注 |
+|---:|---:|---:|---|
+| 256 | 64 | 32 | |
+| 512 | 128 | 64 | GA 偏大，建议提高 MBS 或换 DP 更大规模 |
+
+---
+
+##### 3.2 world=16（2 节点）
+
+###### 配方 A：TP=2, PP=1 → DP=8（保守起步）
+
+| 目标 GBS | MBS=1 时 GA | MBS=2 时 GA | num_microbatches (=DP×GA) |
+|---:|---:|---:|---:|
+| 512 | 64 | 32 | 512 / 256 |
+| 1024 | 128 | 64 | 1024 / 512 |
+
+###### 配方 B：TP=4, PP=2 → DP=2（模型更大，但 PP bubble 风险更高）
+
+| 目标 GBS | MBS=1 时 GA | MBS=2 时 GA | num_microbatches (=DP×GA) | 对 PP=2 的建议 |
+|---:|---:|---:|---:|---|
+| 512 | 256 | 128 | 512 / 256 | 微批足够，但 GA 很大 |
+| 1024 | 512 | 256 | 1024 / 512 | 训练更新极慢，通常不推荐 |
+
+> 注：当 DP 很小（例如 1–2）且 PP>1 时，很容易出现“不得不靠超大 GA 来撑起 microbatches”，这在工程上通常不可取（除非模型极大且别无选择）。
+
+---
+
+##### 3.3 world=64（8 节点）
+
+###### 配方 A（常见起步）：TP=4, PP=2 → DP=8
+
+| 目标 GBS | MBS=1 时 GA | MBS=2 时 GA | num_microbatches (=DP×GA) | 对 PP=2 的建议 |
+|---:|---:|---:|---:|---|
+| 512 | 64 | 32 | 512 / 256 | ≥16 ✅（PP×8=16） |
+| 1024 | 128 | 64 | 1024 / 512 | 余量更大 ✅ |
+| 2048 | 256 | 128 | 2048 / 1024 | GA 偏大，注意更新频率 |
+
+---
+
+##### 3.4 world=256（32 节点）
+
+###### 配方 A（dense 常见起步）：TP=8, PP=4 → DP=8
+
+| 目标 GBS | MBS=1 时 GA | MBS=2 时 GA | num_microbatches (=DP×GA) | 对 PP=4 的建议 |
+|---:|---:|---:|---:|---|
+| 1024 | 128 | 64 | 1024 / 512 | ≥32 ✅（PP×8=32） |
+| 2048 | 256 | 128 | 2048 / 1024 | GA 偏大 |
+
+###### 配方 B（长上下文示例）：TP=8, PP=4, CP=2 → DP=4
+
+| 目标 GBS | MBS=1 时 GA | MBS=2 时 GA | num_microbatches (=DP×GA) | 对 PP=4 的建议 |
+|---:|---:|---:|---:|---|
+| 1024 | 256 | 128 | 1024 / 512 | 微批够，但 GA 偏大 |
+| 2048 | 512 | 256 | 2048 / 1024 | 通常需要更大 MBS 或更多 GPU |
+
+> 长上下文引入 CP 后 DP 降低，常见结果是：要么接受更大的 GA，要么提升 MBS（显存/重算），要么扩大 world_size。
+
+---
+
+#### 4. “token-based batch”与 pack（当你用 packing/concat）
+
+很多预训练更关心 **每次更新的 token 数**，而不是样本数。尤其当你做 sequence packing 时，“一个样本”不再有固定 token 数。
+
+建议你同时记录两类 batch：
+
+- **GBS（样本）**：用于 optimizer 的更新频率与学习率调度的一致性  
+- **tokens/update（token）**：用于衡量“每次更新看了多少 token”，更贴近预训练的计算预算
+
+可操作做法：
+
+1) 固定 `seq_length = S`（例如 4096/8192）  
+2) 近似：`tokens/update ≈ GBS × S`（packing 后更接近上限）  
+3) 如果 packing 不满（短样本多），实际 tokens/update 会低于这个上限 → 需要在日志里显式统计
+
+---
+
+#### 5. 常见坑与快速修复
+
+##### 5.1 “GBS 算对了，但训练不收敛/收敛变差”
+
+常见原因：
+- 学习率 schedule 没随 tokens/update 调整（尤其 seq 变化、packing 变化后）
+- 数据配方变了（loss 分布变）但 warmup 仍沿用旧设置
+
+快速修复：
+- 用固定数据与短 run（200–1000 steps）做稳定性回归  
+- 对 seq/packing 变化后重新扫 warmup 与 LR（别直接上 full run）
+
+##### 5.2 “PP bubble 巨大”
+
+常见原因：
+- `num_microbatches` 太小（DP×GA 太小）
+
+快速修复：
+- 提高 GA（短期）或提高 DP（长期）  
+- 减少 PP 深度（从 8 → 4 或 4 → 2）  
+- 如果必须保持 PP：增大 `num_microbatches`，并观察 bubble 是否显著下降
+
+---
+
+#### 6. 你应该在每次实验记录的 8 个数字（强烈推荐）
+
+1) world_size  
+2) TP/PP/CP/EP  
+3) DP（算出来的）  
+4) seq_length  
+5) MBS  
+6) GA  
+7) GBS（算出来的）  
+8) num_microbatches（DP×GA）
+
+这 8 个数字齐了，别人才能复现你的吞吐与收敛现象。
+
+
+
+---
+
+#### I4. 训练故障模式字典（症状 → 排查 → 修复）
+
+
+> 目标：把“经验”变成可执行 SOP。每个条目都按同一结构写：  
+> **你看到的症状** → **先排查什么（按顺序）** → **常见根因** → **优先修复动作** → **如何验收**。
+
+---
+
+#### FM-01 训练初期 loss spike / NaN（前 1k–10k step）
+
+**症状**
+- loss 突然飙升、出现 NaN/Inf
+- fp16/fp8 overflow 计数飙升、出现 skipped steps
+
+**优先排查（按顺序）**
+1) 学习率：是否过高？warmup 是否过短/为 0？  
+2) 精度策略：是否 FP8 直接上大 seq/batch？  
+3) 数据：是否刚好切换了数据版本/混合权重？是否出现极端长样本？
+
+**常见根因**
+- warmup 不够（最常见）
+- 数据分布突变（混合/过滤/pack 改动）
+- FP8 数值不稳（缩放策略/TE 配置）
+
+**优先修复动作**
+- 先回退 **BF16**，验证是否仍 spike（区分数值 vs 数据）  
+- 延长 warmup（或降低 peak LR），并重新跑 200–1000 step sanity run  
+- 临时加 gradient clipping（保险丝），并监控 overflow/grad norm
+
+**验收**
+- 1k–5k step 内 loss 平稳、溢出/skip 接近 0
+
+---
+
+#### FM-02 训练中后期 loss 稳定但评测掉（“训得更像”但变弱）
+
+**症状**
+- train loss/val loss 更好
+- 但 MT-Bench/Arena/IFEval/任务评测变差
+
+**优先排查**
+1) 评测是否漂移：judge 模型、prompt、temperature、tie 策略是否变了？  
+2) 数据配方：是否加了某类数据导致分布偏移（例如“过多合成数据/过多拒答数据”）？  
+3) 长度/拒答：平均长度是否上升？refusal rate 是否上升？
+
+**常见根因**
+- 评测偏置（长度偏置、裁判漂移）
+- 数据配方引入了“风格坍塌”或目标错配
+
+**修复动作**
+- 同时跑 **Length-Controlled** 评测并报告平均长度/拒答率  
+- 回滚数据版本，做最小 ablation：只改一个数据子集/权重  
+- 引入守门指标回归（IFEval、XSTest、安全回归）
+
+**验收**
+- 主指标回升且守门指标不退化（长度/拒答不过度）
+
+---
+
+#### FM-03 DPO/ORPO/SimPO 后：模型输出变长、变啰嗦（刷分嫌疑）
+
+**症状**
+- win-rate 上升，但平均长度显著上升
+- 用户感知“更啰嗦”“不直接回答”
+
+**优先排查**
+1) 用 Length-Controlled AlpacaEval 或 length-matched 设定复测  
+2) 检查偏好数据：chosen 是否系统性更长/更礼貌？  
+3) 检查 β/目标函数：β 是否过大导致风格僵化+模板化？
+
+**常见根因**
+- 长度偏置被放大（偏好数据 + 评测偏置）
+- 负样本构造不当（rejected 过短/过粗糙）
+
+**修复动作**
+- 引入长度控制评测作为主报告口径  
+- 在偏好数据中加入“短而好”的 chosen（或对 chosen/rejected 做长度匹配）  
+- 降 β 或采用更稳健的变体（如修复失败模式的 DPOP/RSO 思路）
+
+**验收**
+- LC win-rate 不降且长度回落到目标区间
+
+---
+
+#### FM-04 安全看似变好，但 over-refusal（过度拒答）严重
+
+**症状**
+- HarmBench/JBB 指标变好（ASR 降）
+- 但很多安全问题也拒答；用户满意度下降
+
+**优先排查**
+1) XSTest（exaggerated safety）是否显著变差？  
+2) refusal rate 是否上升？  
+3) 安全训练数据是否“只教拒答、不教如何安全地回答”？
+
+**常见根因**
+- 安全训练退化成“关键词触发拒答”
+- reward/评审偏向拒答（RM 偏置）
+
+**修复动作**
+- 引入 **XSTest** 作为安全守门指标（与 HarmBench/JBB 配对）  
+- 安全对齐采用 **约束式（reward/cost）** 或增加“安全回答”的正样本  
+- 将一部分安全压力转到系统层：WildGuard/Llama Guard（主模型少背锅）
+
+**验收**
+- ASR 降且 over-refusal 不升（或回落）
+
+---
+
+#### FM-05 吞吐抖动/不线性扩容（scale 越大越慢）
+
+**症状**
+- tokens/s 抖动大
+- 从 8→16→64 GPU 吞吐不线性或变差
+
+**优先排查**
+1) dataloader time（I/O/解压/tokenizer/packing）是否占比高？  
+2) PP bubble（PP>1）：num_microbatches 是否太小？  
+3) 通信：TP 是否跨节点？EP A2A 是否过高？CP 是否引入通信爆炸？
+
+**修复动作**
+- 先用 mock data 排除数据层  
+- 预 tokenize/预 pack；提升本地缓存（NVMe）  
+- 重新选拓扑：TP 节点内、PP 跨节点；提高 num_microbatches（DP×GA）
+
+**验收**
+- step time 方差下降；扩容吞吐接近线性（至少单调增加）
+
+---
+
+#### FM-06 checkpoint 恢复后：loss 不连续 / 训练变慢
+
+**症状**
+- 恢复后 loss 跳变（非连续）
+- 恢复后吞吐下降
+
+**优先排查**
+1) 是否改变了并行拓扑（TP/PP/CP/EP）？  
+2) optimizer state 是否完整恢复？  
+3) dataloader 的 sampler 状态是否恢复（数据游标/随机种子）？
+
+**修复动作**
+- 明确区分“训练恢复 ckpt（分片）”与“发布 ckpt（聚合/HF）”  
+- 恢复后先跑短 sanity run（200–1000 steps）  
+- 固定 seed + 记录 data cursor（或显式保存 sampler 状态）
+
+**验收**
+- loss 在恢复点前后连续；吞吐恢复到正常水平
+
+---
+
+#### FM-07 指令遵循退化（IFEval 掉、结构化输出变差）
+
+**症状**
+- IFEval 下降、JSON/格式错误增多
+- 工具调用或约束输出更不稳定
+
+**优先排查**
+1) chat template 是否变了（系统提示词/分隔符/roles）？  
+2) packing 是否把多轮边界弄乱？  
+3) 是否引入了大量“非指令风格数据”（网页噪声/摘要/无对话）？
+
+**修复动作**
+- 把 chat template 与系统提示词版本化并固定  
+- 对 packing 结果做抽样可视化审计（至少 50 条）  
+- 回滚或降低噪声数据比重；用少量高质量 SFT 数据“再对齐一下”
+
+**验收**
+- IFEval 恢复，结构化输出错误率下降
+
+---
+
+#### FM-08 长上下文训练（seq ↑）后：困惑度变差 / 训练不稳 / 吞吐大跌
+
+**症状**
+- 从 4k→8k→16k（或更长）后 loss/评测明显变差
+- GPU 利用率下降、通信占比上升，甚至出现 NCCL timeout
+
+**优先排查**
+1) tokens/update 是否改变（GBS×seq）但 LR/warmup 没调整？  
+2) activation checkpointing 是否开启？是否选对重算粒度？  
+3) 是否引入 CP（Context Parallel）？CP 通信是否爆炸？
+
+**常见根因**
+- 同样的 LR 对更长 seq 等效“步子太大”
+- activation 内存爆导致 MBS 被迫降太低，吞吐/稳定性双输
+- CP/通信拓扑不匹配导致通信超时与抖动
+
+**优先修复动作**
+- 按“逐步扩容”策略：先 BF16、先单节点、再扩节点  
+- 重新扫 warmup/LR（尤其当 tokens/update 变化时）  
+- 开 activation checkpointing（必要时牺牲一点吞吐换稳定）  
+- CP 先小规模验证，再扩到全量（并监控 CP 相关通信）
+
+**验收**
+- loss 曲线稳定、吞吐回到可接受区间；长上下文评测（如 long-context QA）不退化
+
+---
+
+#### FM-09 MoE/EP：负载不均、A2A 通信爆炸、吞吐抖动
+
+**症状**
+- tokens/s 抖动大、step time 方差大
+- 某些 GPU 利用率高、某些低（expert load 不均）
+
+**优先排查**
+1) expert load / token dispatch 统计是否均衡？  
+2) EP 的 all-to-all（A2A）时间是否成为主瓶颈？  
+3) 数据是否导致 token 分布偏斜（长尾域、特定格式）？
+
+**常见根因**
+- router 学到偏置，导致少数 expert “爆满”
+- 网络或 overlap 配置不佳，A2A 变成瓶颈
+
+**优先修复动作**
+- 先在小规模 world 验证 EP（别一上来 256 卡）  
+- 增加对 router 的正则/负载均衡（视你的实现栈而定）  
+- 调整 EP×DP×TP 拓扑，减少跨节点 A2A  
+
+**验收**
+- expert load 分布更均匀；A2A 占比下降；吞吐抖动显著减小
+
+---
+
+#### FM-10 packing 边界 bug：模型学会“跨样本续写/串台”
+
+**症状**
+- 模型会把无关样本内容串在一起
+- 指令遵循变差、输出出现“上一条样本的尾巴”
+
+**优先排查**
+1) EOS/SEP 策略：每个样本是否正确终止？是否重复 EOS？  
+2) 多轮对话 role 边界：assistant/user 分隔是否正确？  
+3) 训练样本可视化抽检（随机抽 50–200 条 pack 后序列）
+
+**常见根因**
+- concat/packing 没有严格写入样本边界
+- chat template 与 packing 逻辑不一致
+
+**优先修复动作**
+- 为每个样本强制插入边界 token（至少 EOS）并在 loss mask 上隔离  
+- 对 packed 样本做自动单元测试：检查 role 顺序、EOS 数量、边界位置  
+- 修复后跑 IFEval/结构化输出回归（packing 最常伤它）
+
+**验收**
+- “串台”现象消失；IFEval 恢复；随机抽样不再出现跨样本拼接
+
+---
+
+#### FM-11 事实性下降/胡编变多（尤其对齐后更明显）
+
+**症状**
+- 模型看起来更自信、更会说，但错误事实变多
+- TruthfulQA/领域事实集下降；幻觉类评测上升
+
+**优先排查**
+1) 对齐数据是否偏“文风/礼貌/长度”，而不是“正确性”？  
+2) RM/judge 是否偏向“更像人写的长文”，导致事实性被牺牲？  
+3) 是否缺少“引用/证据”的训练信号（比如 WebGPT 风格）？
+
+**常见根因**
+- 偏好优化把“好写作”当成“正确”
+- 评测与训练目标错配（只优化主观偏好）
+
+**优先修复动作**
+- 引入事实性守门指标（TruthfulQA/业务事实回归）  
+- 在偏好数据中加入“短而对”的 chosen，并对 rejected 加入“胡编但流畅”的负样本  
+- 对需要引用的场景，引入 WebGPT 类数据或强制引用格式约束（IFEval 风格）
+
+**验收**
+- 主观偏好不降，事实性回归集回升；幻觉类指标下降
+
+---
+
+#### FM-12 VLM/MLLM 幻觉反弹（上线后比离线评测更糟）
+
+**症状**
+- 离线 POPE/HallusionBench 看起来改善
+- 真实线上图片/多图输入/OCR 场景幻觉反而更多
+
+**优先排查**
+1) 输入分布差异：线上是否有多图、截图、文字密集、低分辨率？  
+2) 是否存在 prompt 引导/干扰（leading question）、或 OCR 注入？  
+3) 推理侧是否有兜底（VCD/OPERA/HALC）？是否有视觉 guard？
+
+**常见根因**
+- offline benchmark 覆盖面不足（bias/interference 没覆盖）
+- 线上输入噪声导致模型更依赖语言先验乱猜
+
+**优先修复动作**
+- 增加“in-the-wild”回归集（比如 LLaVA-Bench 风格）并加入 bias/interference 测试  
+- 上线兜底：先加解码法（VCD/OPERA/HALC）快速止血  
+- 引入后处理纠错（Woodpecker/LURE）用于高风险场景
+
+**验收**
+- 线上幻觉投诉率下降；离线与线上趋势一致；新增回归集不再退化
+
+---
+
+#### FM-13 评测分数忽高忽低（不可复现）/ 裁判漂移
+
+**症状**
+- 同一模型重复评测波动很大
+- 改动很小但分数大幅变化
+
+**优先排查**
+1) judge 是否一致（模型版本、prompt、temperature、tie 规则）？  
+2) 采样是否一致（seed、top-p、temperature、max_tokens）？  
+3) 题目集合是否变了（Arena/WildBench 的题源是否更新）？
+
+**常见根因**
+- judge 漂移或采样随机性导致噪声
+- benchmark 更新导致不可比
+
+**优先修复动作**
+- 评测一切版本化：judge 配置、题集版本、采样参数  
+- 报告置信区间/多次评测平均（尤其小差距）  
+- 引入 checklist-based 评测减少主观噪声（Appendix B）
+
+**验收**
+- 重复评测方差下降；版本间可比性提升
+
+---
+
+#### FM-14 评测污染/泄漏：看起来很强但泛化差
+
+**症状**
+- 某些公开基准异常高，但换新题源/私有题源就掉
+- 模型输出出现“背题痕迹”
+
+**优先排查**
+1) 用 Min-K% Prob / DCQ 抽检评测题是否疑似出现在训练语料  
+2) 检查数据配方：是否混入了 benchmark dump / 题库 / solution？  
+3) 看时间线：评测题发布时间是否早于训练语料冻结时间？
+
+**优先修复动作**
+- 建立 contamination checklist（每版数据都跑）  
+- 对关键评测集做指纹化并在训练语料中删近邻  
+- 增加“新鲜题源/动态更新”的评测（如 LiveCodeBench 思路）
+
+**验收**
+- 私有/新鲜评测与公开评测的差距缩小；背题迹象消失
+
+---
+
+#### FM-15 数据过滤器/质量分类器导致“隐性偏置”（多语言/长尾域被误杀）
+
+**症状**
+- 英文/主流域评测提升，但低资源语言、口语、某些垂域明显退化
+- 训练语料统计显示：某些语言/域占比显著下降
+
+**优先排查**
+1) 过滤前后按语言/域的 token 占比是否发生结构性变化？  
+2) 过滤器是否对“非英语/非正式文本/代码片段”系统性低分？  
+3) 是否把去重/相似度阈值设得过高导致“低资源语料被重复误判”？
+
+**常见根因**
+- 英语主导的质量模型把“简短/口语/非标准拼写”当噪声
+- 清洗策略对长尾域缺乏独立阈值
+
+**优先修复动作**
+- 对低资源语言/关键垂域单独设阈值（或走独立数据通道）  
+- 引入 **soft filtering**（多指标弱过滤）而不是“一刀切强过滤”  
+- 把“语言/域覆盖率”作为守门指标（每版数据必须过）
+
+**验收**
+- 语言/域分布恢复到目标范围；对应子域评测回升且主域不退化
+
+---
+
+#### FM-16 代码/数学子域退化（通用能力变强但专项变弱）
+
+**症状**
+- 通用对话评测上升，但代码/数学（如 HumanEval/MBPP/数学集）下降
+- 生成变“更会解释”，但解题正确率变差
+
+**优先排查**
+1) data mixture：代码/数学权重是否下降？是否被“通用对话/合成数据”稀释？  
+2) 评测：是否存在长度/文风偏置（写得更长更像对但其实错）？  
+3) 对齐：是否过强的安全/拒答导致代码执行类问题更谨慎？
+
+**常见根因**
+- mixture 漂移：专项数据被稀释，或过滤器误杀代码（特殊符号/重复片段）
+- 对齐目标偏向“解释性/礼貌”，牺牲了 outcome 正确性
+
+**优先修复动作**
+- 把代码/数学做成 **独立守门面板**（每次训练都跑）  
+- 对代码数据采用更宽松的去重/过滤（代码天然重复）  
+- 对齐阶段加入 outcome-based 样本（例如正确解 vs 错解的偏好对比）
+
+**验收**
+- 专项面板回升且通用面板不回落；长度偏置被控制
+
+---
+
+#### FM-17 Reward Model hacking / overoptimization（RM 分数涨、人评不涨）
+
+**症状**
+- RM 分数持续上升，但人工评审或下游任务无提升甚至变差
+- 模型输出出现“迎合 RM”的模板化行为（更安全/更长/更礼貌但不更正确）
+
+**优先排查**
+1) RM 是否存在拒答偏置/长度偏置？（RewardBench/属性分解）  
+2) policy 是否超出 RM 的有效分布（distribution shift）？  
+3) 是否把多个目标（helpful/harmless/truthful）粗暴线性加权？
+
+**常见根因**
+- RM 本身不稳/不泛化，被策略模型“投机取巧”
+- 约束不足导致 reward overoptimization
+
+**优先修复动作**
+- 把 RM 评测纳入常规流程（RewardBench；按属性看分）  
+- 使用约束式策略优化（constrained RLHF）或更稳健 RM（WARM/ensemble）  
+- 将安全靠拒答的信号与 helpfulness 拆开（reward/cost）
+
+**验收**
+- 人评/主任务提升与 RM 提升一致；拒答/长度不再异常上升
+
+---
+
+#### FM-18 DPO 类训练失败：只会“压 rejected”，不会“抬 chosen”（质量不升或变怪）
+
+**症状**
+- DPO 后主观评测不升甚至变差；风格更谨慎但不更好
+- 输出出现“模板化拒答/泛泛而谈”
+
+**优先排查**
+1) chosen/rejected 是否风格差异巨大（长度、口吻、格式）导致梯度不稳？  
+2) β 是否过大（导致模型僵硬）或过小（学不动）？  
+3) 负样本是否太弱（rejected 过烂），导致学习信号不精细？
+
+**常见根因**
+- 偏好对比不“可比”（style-consistency 差）
+- 训练目标在梯度场上出现失败模式（典型见 DPOP 分析）
+
+**优先修复动作**
+- 做 style-consistency 约束：长度匹配、格式匹配、统一 system prompt  
+- 降 β，并用 LC 评测验证是否仍提升  
+- 采用修复失败模式的方法（如 DPO-Positive/DPOP、rejection sampling 思路）
+
+**验收**
+- 主观偏好与硬约束指标同时改善；输出不再模板化
+
+---
+
+#### FM-19 Online preference / 持续对齐漂移：越训越“像另一个产品”
+
+**症状**
+- 模型在一段时间后风格/拒答边界明显漂移
+- A/B 结果不稳定：同样改动在不同时间窗口效果相反
+
+**优先排查**
+1) 在线数据分布是否变化（用户、场景、政策、季节性）？  
+2) judge/RM 是否漂移（版本变了、提示词变了）？  
+3) 是否缺少“回滚机制”与固定 hold-out 回归集？
+
+**常见根因**
+- online 数据是非平稳分布，反馈信号本身也会漂移
+- 系统 prompt/policy 改动导致“目标函数变了”
+
+**优先修复动作**
+- 建立固定 **hold-out 回归集**（永不训练）+ 周期性人评校准  
+- 每次在线迭代都保留可回滚 checkpoint，并记录 manifest（版本化）  
+- 将在线对齐改为“缓慢更新 + 强正则”（防止快速漂移）
+
+**验收**
+- 回归集稳定、风格漂移减小；A/B 的置信区间可解释
+
+---
+
+#### FM-20 公开榜单很强，但真实产品任务差（目标错配/过拟合评测）
+
+**症状**
+- MT-Bench/Arena 很高，但真实用户转化/满意度不高
+- 模型更会“写漂亮答案”，但不解决问题
+
+**优先排查**
+1) 评测题是否覆盖你的真实任务？（题型、工具、约束、语言）  
+2) 是否存在“榜单偏置”（偏长/偏礼貌/偏风格）？  
+3) 你的产品是否更在意 outcome（正确率/执行成功），而不是文风？
+
+**常见根因**
+- 评测体系与产品目标错配
+- 模型过拟合某类评测风格（尤其对齐训练使用同源 judge）
+
+**优先修复动作**
+- 建立“产品回归集”（来自真实日志 + checklist-based 评测）  
+- 把 outcome-based 指标纳入主 KPI（工具调用成功率、代码测试通过率等）  
+- 用多裁判/多评测交叉验证，降低单一 judge 的诱导效应
+
+**验收**
+- 产品 KPI 改善且公开评测不退化或可接受
+
+
+---
+
+### 附录 J — 实践模板（验收 / 审计 / Checklist）
+
+> 以下模板把"是否变好"从主观感觉变成**可验收门禁**，建议直接复制到你的训练项目中使用。
+
+---
+
+#### J1. 对齐训练验收模板
+
+
+> 用途：当你做 SFT/DPO/PPO/GRPO/online preference 时，用这份模板把“是否变好”从主观感觉变成**可验收门禁**。  
+> 目标：显式防止 FM-03/04/11/17/18/19/20（长度刷分、过度拒答、事实性下降、RM hacking、DPO 失败、漂移、产品错配）。
+
+---
+
+#### 0) 元信息
+
+- run_id：
+- base_model（对齐前 checkpoint / HF repo）：
+- method：SFT / DPO / ORPO / SimPO / PPO / GRPO / online preference
+- preference_data：
+- judge / RM：
+- 目标产品/场景：
+
+---
+
+#### 1) “对齐前 vs 对齐后”对比（必须）
+
+> 建议你固定同一套采样参数（temperature/top_p/max_tokens/seed），否则对比不可信。
+
+##### 1.1 主指标（Primary KPI）
+
+| metric | before | after | delta | 备注 |
+|---|---:|---:|---:|---|
+| arena-hard / mt-bench / wildbench |  |  |  | |
+
+##### 1.2 硬约束回归（Instruction Following）
+
+| metric | before | after | delta |
+|---|---:|---:|---:|
+| IFEval |  |  |  |
+| JSON/schema pass rate（自定义） |  |  |  |
+
+##### 1.3 长度与风格（Length/Style Guardrails）
+
+| metric | before | after | delta |
+|---|---:|---:|---:|
+| avg output length |  |  |  |
+| LC-AlpacaEval win-rate |  |  |  |
+| refusal rate |  |  |  |
+
+##### 1.4 安全（Safety）——同时测 ASR 与 over-refusal
+
+| metric | before | after | delta |
+|---|---:|---:|---:|
+| HarmBench ASR |  |  |  |
+| JBB ASR |  |  |  |
+| XSTest over-refusal |  |  |  |
+
+##### 1.5 事实性/不胡编（Truthfulness）
+
+| metric | before | after | delta |
+|---|---:|---:|---:|
+| TruthfulQA / 业务事实回归 |  |  |  |
+| hallucination rate（如有） |  |  |  |
+
+---
+
+#### 2) 必做“体检”（用于排查 RM/judge 偏置）
+
+##### 2.1 RM/judge 偏置体检 Checklist（FM-17）
+
+执行并归档：
+- `template-min-repro-rm-bias-checklist.md`
+
+输出结论（勾选）：
+- [ ] length bias
+- [ ] refusal bias
+- [ ] style bias
+- [ ] correctness-aware（相对健康）
+
+若存在偏置，记录对策：
+- 数据增补：
+- 评测去偏：
+- 目标函数/约束：
+
+---
+
+#### 3) DPO 系特有验收（DPO/ORPO/SimPO）
+
+##### 3.1 数据可比性（style-consistency）
+
+抽样 100 对 chosen/rejected，检查：
+- [ ] 长度差距是否过大
+- [ ] system prompt 是否一致
+- [ ] 格式/结构是否一致（尤其工具调用/JSON）
+
+##### 3.2 超参记录（必须写入 run manifest）
+
+- beta：
+- lr：
+- epochs/steps：
+- reference model（如有）：
+
+##### 3.3 失败模式检查（FM-18）
+
+如果出现“更谨慎但不更好/模板化”，记录：
+- 是否做了长度控制评测（LC）：
+- 是否引入 DPOP/RSO 等修复：
+
+---
+
+#### 4) RLHF/在线偏好特有验收（PPO/GRPO/online）
+
+##### 4.1 reward overoptimization 检查（FM-17）
+
+| signal | expectation | observed |
+|---|---|---|
+| RM score ↑ 但人评不↑ | should be NO |  |
+| refusal ↑ 且安全“靠拒答刷” | should be NO |  |
+
+##### 4.2 漂移检查（FM-19）
+
+要求：
+- [ ] 固定 hold-out 回归集（永不训练）
+- [ ] A/B 测试置信区间
+- [ ] 可回滚 checkpoint
+
+---
+
+#### 5) 验收门禁（建议直接复制到 run manifest 的 gates）
+
+建议最小门禁（你可以按项目调阈值）：
+
+- 数值稳定：nan_steps=0，overflow_rate 低
+- IFEval：不退化（或退化不超过阈值）
+- 安全：ASR 不上升；XSTest 不更差
+- 长度：avg_length 不显著上升；LC win-rate 不下降
+- 事实性：truthfulness 不下降
+- 污染：contamination_suspect_rate 不上升
+
+---
+
+#### 6) 结论（是否通过验收？）
+
+- [ ] 通过（可推进下一阶段/上线灰度）
+- [ ] 不通过（回滚/重训/改数据/改门禁）
+
+不通过的首要原因（选择 1–2 个）：
+- [ ] 长度偏置
+- [ ] 过度拒答
+- [ ] 事实性下降
+- [ ] IFEval 退化
+- [ ] RM/judge 偏置
+- [ ] 评测不稳定/漂移
+- [ ] 其它：
+
+
+
+---
+
+#### J2. 数据配方变更审计模板
+
+
+> 用途：当你修改数据配方（过滤/去重/混合权重/packing/tokenizer 预处理）时，用这份模板把变化**可审计、可对比、可回滚**。  
+> 目标：避免 FM-15/16/14（隐性偏置、子域退化、污染）以及 FM-01/08（数值不稳由数据触发）。
+
+---
+
+#### 0) 元信息
+
+- data_recipe_id（新）：`data-v13`
+- data_recipe_id（旧）：`data-v12`
+- 变更日期：
+- 负责人：
+- 变更目的（一句话）：
+- 关联训练 run（run_id）：
+
+---
+
+#### 1) 变更摘要（Diff Summary）
+
+##### 1.1 数据源与混合权重（Mixture）
+
+| source | old_weight | new_weight | delta | 备注 |
+|---|---:|---:|---:|---|
+| fineweb-edu | 0.55 | 0.50 | -0.05 | |
+| code | 0.20 | 0.25 | +0.05 | |
+| math | 0.25 | 0.25 | 0.00 | |
+
+> 规则：每次变更尽量只动 1–2 个权重，避免不可解释。
+
+##### 1.2 过滤器（Filtering）
+
+| filter | old | new | 影响范围 |
+|---|---|---|---|
+| 质量分类阈值 | 0.65 | 0.70 | 可能误杀口语/低资源语言 |
+| 毒性过滤 | on | on | |
+| 广告/SEO | on | on | |
+
+##### 1.3 去重（Dedup）
+
+| method | threshold_old | threshold_new | 备注 |
+|---|---:|---:|---|
+| minhash | 0.85 | 0.90 | 更强去重可能影响低资源语料 |
+
+##### 1.4 packing/concat 与边界策略
+
+| item | old | new |
+|---|---|---|
+| packing | on/off | on/off |
+| eos_policy | single-eos | single-eos |
+| loss_mask | per-sample | per-sample |
+
+> 若修改 packing：必须配套执行 `template-min-repro-packing-audit.py`（FM-10）。
+
+##### 1.5 tokenizer / normalization（如有）
+
+| item | old | new |
+|---|---|---|
+| tokenizer hash | sha256:... | sha256:... |
+| normalization | none | none |
+
+> tokenizer 变更 ≈ 换任务定义：需要重新基线与重新扫 LR/warmup。
+
+---
+
+#### 2) 统计对比（必须输出）
+
+##### 2.1 总体统计
+
+| metric | old | new | delta |
+|---|---:|---:|---:|
+| total_tokens |  |  |  |
+| docs |  |  |  |
+| pass_rate（过滤通过率） |  |  |  |
+| dedup_removed_rate |  |  |  |
+
+##### 2.2 覆盖率守门（强烈建议）
+
+至少按以下维度分桶统计 token 占比（old vs new）：
+
+- 语言（lang）
+- 域（web/code/math/…）
+- 长度分布（seq len / doc len）
+- 质量分位（如有 quality score）
+
+输出表（示例）：
+
+| bucket | old_share | new_share | delta |
+|---|---:|---:|---:|
+| zh |  |  |  |
+| en |  |  |  |
+| code |  |  |  |
+| math |  |  |  |
+
+> 经验门禁：任何关键 bucket share 变化 > ±10% 都应被视为高风险变更，需要更严格验证。
+
+---
+
+#### 3) 污染与泄漏检查（FM-14）
+
+勾选你执行的方法，并记录结果：
+
+- [ ] MinHash/n-gram 近邻检索（命中率：____，人工抽检：____ 条）
+- [ ] Min-K% Prob（异常比例：____）
+- [ ] DCQ（分数/分布：____）
+
+如命中严重：
+- 删除近邻数量：
+- 删除规则与阈值：
+- 是否回滚评测题源（或换新鲜题源）：
+
+---
+
+#### 4) 训练前验证（MVP Sanity Run）
+
+强制要求：
+
+- [ ] mock data 2 GPU 跑通（排除 infra）
+- [ ] 新 data recipe 用小模型/短 seq 跑 200–1000 steps（BF16）
+- [ ] 记录：tokens/s、loss、overflow/NaN、dataloader time
+
+验收标准（示例）：
+- loss 不出现 spike/NaN
+- tokens/s 不低于旧版本 90%
+- dataloader time 不显著上升
+
+---
+
+#### 5) 训练后验收（与对齐/评测闭环挂钩）
+
+至少跑：
+
+- 主指标：MT-Bench/Arena-Hard/WildBench（按你的项目）
+- 守门：IFEval、长度控制评测、XSTest/HarmBench（如适用）、事实性回归（如适用）
+
+将结果写入 run manifest 的 `acceptance_criteria` 与 `notes`，并记录是否满足门禁。
+
+---
+
+#### 6) 回滚计划（必须写）
+
+- 回滚条件（触发门禁）：例如 IFEval 下降 > 0.5 / 关键语言占比下降 > 10% / 安全 over-refusal 上升
+- 回滚动作：恢复 data-v12 + 复跑 sanity run
+- 责任人与时间窗口：
+
+
+
+---
+
+#### J3. 评测污染/泄漏抽检模板
+
+
+> 目标：当你怀疑“公开榜单异常高但泛化差”“背题迹象”，用一个**可执行的抽检流程**快速判断是否存在污染风险。
+
+---
+
+#### 1) 抽检输入准备
+
+准备两类文本：
+
+1. `eval_prompts.txt`：评测题（prompt / question / instruction）  
+2. `train_shards/`：训练语料的抽样切片（建议每版数据固定抽样，便于可比）
+
+建议：
+- 训练语料抽样按语言/域分层抽取（避免只抽到英语）
+- 每次抽检固定随机种子并记录在 run manifest
+
+---
+
+#### 2) 快速启发式：n-gram / MinHash 近邻检索（最便宜）
+
+流程：
+1. 对 `eval_prompts.txt` 生成指纹（n-gram 或 MinHash）  
+2. 在 `train_shards/` 中做近邻检索  
+3. 输出命中样本与相似度，并人工抽检 20–50 条
+
+判据（经验）：
+- 如果命中率 > 1% 且命中样本包含完整题干/答案结构，污染风险高
+- 如果只命中短片段/常见句式，需结合更强方法判断
+
+---
+
+#### 3) 无需训练语料的检测：Min-K% Prob（强烈建议）
+
+当你拿不到完整训练语料（或语料太大不便检索）时，使用 **Min-K% Prob** 思路：
+
+- 参考论文：arXiv:2310.16789（Detecting Pretraining Data from LLMs）
+
+流程（概念）：
+1. 用被测模型对每条 prompt 计算 token-level 负 log prob  
+2. 取最小 K% 的 token（模型最“熟悉”的 token）平均概率作为统计量  
+3. 统计异常低 perplexity/高熟悉度的样本比例
+
+判据（经验）：
+- 你需要一个“对照集”（同风格但确定不在训练语料的文本）作为基线
+- 单靠阈值不可靠：看“分布是否双峰/是否明显与对照集分离”
+
+---
+
+#### 4) DCQ：基准级巡检（适合每个版本例行跑）
+
+- 参考论文：arXiv:2311.06233（Data Contamination Quiz）
+
+使用方式：
+- 把 DCQ 当成每个版本数据的例行巡检（像单元测试）
+- 输出污染风险的分数/分布，与历史版本对比
+
+---
+
+#### 5) 处理策略（确认污染后怎么做）
+
+1. 评测题指纹化 → 在训练语料中删近邻（并保留审计日志）  
+2. 对关键评测集采用**动态/新鲜题源**（如 LiveCodeBench 时间滚动范式）  
+3. 发布评测时避免“纯明文公开”（参考 2305.10160 的建议）
+
+---
+
+#### 6) 你应该在 run manifest 里记录的字段
+
+- contamination_checks.enabled = true  
+- contamination_checks.methods = ["min-k-prob", "dcq", "minhash-neighbor"]（按实际）  
+- contamination_suspect_rate（本次抽检结果）  
+- 处理动作（删除近邻的数量/规则/阈值）
+
+
+
+---
+
+#### J4. Reward Model / Judge 偏置体检 Checklist
+
+
+> 目标：当你发现“RM 分数涨、人评不涨/变差”“安全靠拒答刷出来”时，用一套最小 checklist 快速定位 RM/judge 的偏置类型。
+
+---
+
+#### 1) 你需要的一组对比样本（建议每类 50–200）
+
+按同一 prompt 构造 pairs（或 list）：
+
+1. **短而正确 vs 长而含糊**  
+2. **直接回答 vs 过度礼貌/冗长解释**  
+3. **安全回答（合规） vs 一句话拒答**  
+4. **事实正确但语气一般 vs 语气很好但胡编**  
+5. **结构化输出正确 vs 自然语言很漂亮但格式不符合**
+
+> 关键：对比样本要“只在一个维度上不同”，否则你不知道 RM 在偏向什么。
+
+---
+
+#### 2) 体检维度（你要输出一张表）
+
+对每个 pair，让 RM/judge 输出：
+
+- `score_a, score_b`
+- `winner`（a/b/tie）
+- 解释（如果支持）
+
+然后汇总每类样本的：
+
+- winner 分布（a 赢多少、b 赢多少）
+- tie 率
+
+---
+
+#### 3) 常见偏置模式与判定
+
+##### 3.1 长度偏置（Length Bias）
+
+**信号**：长而含糊/冗长解释系统性赢  
+**对策**：
+- 改评测口径：Length-Controlled（Appendix B）
+- RM 训练：加入 verbosity 属性（HelpSteer 类），或加入短而好样本
+
+##### 3.2 拒答偏置（Refusal Bias）
+
+**信号**：一句话拒答在很多“可合规回答”的 prompt 上赢  
+**对策**：
+- 明确将 harmlessness 作为 cost、helpfulness 作为 reward（Safe RLHF 思路）
+- 加入 XSTest 作为守门，避免安全靠拒答刷分
+
+##### 3.3 文风/礼貌偏置（Style Bias）
+
+**信号**：更礼貌/更像人写作的答案赢，即使错  
+**对策**：
+- 加入 outcome-based/正确性对比样本
+- 将事实性作为守门指标（TruthfulQA/业务事实回归）
+
+---
+
+#### 4) 输出物（建议写进 run manifest 的附件）
+
+你应该保存：
+- 每类样本的 winner 统计表
+- 典型反例（RM/judge 选错的案例）
+- 结论：RM 更偏向哪类信号（长度/拒答/文风/正确性）
+- 下一步动作（数据增补/目标函数调整/评测去偏）
+
+
+
+---
+
+### 附录 K — 代码与配置模板（审计脚本 / 评测结果 / Run Manifest）
+
+> 以下为可直接使用的代码模板与配置模板，包括 packing 审计脚本、评测结果模板、训练 run manifest 模板。
+
+---
+
+#### K1. Packing / Concat 边界审计脚本
+
+```python
+"""
+最小复现模板：packing/concat 边界审计（用于排查 FM-10）
+
+用法（示例）：
+  python template-min-repro-packing-audit.py --input packed_samples.jsonl --sample 50
+
+输入格式（JSONL，每行一个样本）：
+{
+  "input_ids": [..],
+  "labels": [..],               # 可选；若没有也能做边界审计
+  "attention_mask": [..],       # 可选
+  "meta": {
+     "segments": [
+        {"type": "sample", "start": 0, "end": 1024, "eos_positions": [1023]},
+        {"type": "sample", "start": 1024, "end": 2048, "eos_positions": [2047]}
+     ]
+  }
+}
+
+说明：
+- 最强建议：你的 packing pipeline 在产出 packed 样本时，额外写入 meta.segments（每个原始样本在 packed 序列中的边界）。
+- 这个脚本会做三类检查：
+  1) 边界处是否有 EOS（或你定义的 boundary token）
+  2) labels 是否在边界处正确 mask（避免跨样本学习）
+  3) 边界附近是否出现异常 token 模式（可选启发式）
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+
+
+@dataclass
+class AuditResult:
+    total: int
+    missing_segments: int
+    boundary_eos_missing: int
+    label_leak_suspect: int
+
+
+def _iter_jsonl(path: str) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def _audit_one(
+    row: Dict[str, Any],
+    eos_token_id: int,
+    boundary_token_id: Optional[int],
+    check_labels: bool,
+) -> Tuple[int, int]:
+    """返回 (boundary_eos_missing, label_leak_suspect)"""
+    input_ids: List[int] = row["input_ids"]
+    labels: Optional[List[int]] = row.get("labels")
+
+    meta = row.get("meta", {})
+    segments = meta.get("segments")
+    if not segments:
+        # 无 segments 时无法做严格边界审计
+        return (0, 0)
+
+    boundary_eos_missing = 0
+    label_leak_suspect = 0
+
+    for seg in segments:
+        end = int(seg["end"])
+        # end 是右开区间 [start, end)
+        boundary_pos = end - 1
+        if boundary_pos < 0 or boundary_pos >= len(input_ids):
+            continue
+
+        boundary_token = input_ids[boundary_pos]
+        ok = boundary_token == eos_token_id or (boundary_token_id is not None and boundary_token == boundary_token_id)
+        if not ok:
+            boundary_eos_missing += 1
+
+        if check_labels and labels is not None:
+            # 启发式：如果 labels 在边界 token 附近没有 mask(-100)，且下一个 segment 紧邻，可能发生跨样本学习
+            # 这里假设 labels 使用 -100 表示 ignore_index（HF 默认）
+            if boundary_pos + 1 < len(labels):
+                if labels[boundary_pos] != -100 and labels[boundary_pos + 1] != -100:
+                    label_leak_suspect += 1
+
+    return (boundary_eos_missing, label_leak_suspect)
+
+
+def run_audit(
+    input_path: str,
+    eos_token_id: int,
+    boundary_token_id: Optional[int],
+    sample_n: int,
+    seed: int,
+    check_labels: bool,
+) -> AuditResult:
+    rows = _iter_jsonl(input_path)
+    total = len(rows)
+    if total == 0:
+        return AuditResult(total=0, missing_segments=0, boundary_eos_missing=0, label_leak_suspect=0)
+
+    random.seed(seed)
+    picked = rows if sample_n <= 0 else random.sample(rows, k=min(sample_n, total))
+
+    missing_segments = 0
+    boundary_eos_missing = 0
+    label_leak_suspect = 0
+
+    for row in picked:
+        segments = row.get("meta", {}).get("segments")
+        if not segments:
+            missing_segments += 1
+            continue
+        miss_eos, leak = _audit_one(row, eos_token_id=eos_token_id, boundary_token_id=boundary_token_id, check_labels=check_labels)
+        boundary_eos_missing += miss_eos
+        label_leak_suspect += leak
+
+    return AuditResult(
+        total=len(picked),
+        missing_segments=missing_segments,
+        boundary_eos_missing=boundary_eos_missing,
+        label_leak_suspect=label_leak_suspect,
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", required=True, help="packed JSONL file")
+    parser.add_argument("--eos", type=int, required=True, help="eos_token_id")
+    parser.add_argument("--boundary-token", type=int, default=None, help="optional boundary token id if not using eos")
+    parser.add_argument("--sample", type=int, default=50, help="number of rows to audit; 0 = all")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--check-labels", action="store_true", help="enable label leak heuristic checks")
+    args = parser.parse_args()
+
+    result = run_audit(
+        input_path=args.input,
+        eos_token_id=args.eos,
+        boundary_token_id=args.boundary_token,
+        sample_n=args.sample,
+        seed=args.seed,
+        check_labels=args.check_labels,
+    )
+
+    print("Packing Audit Result")
+    print("====================")
+    print(f"rows_audited: {result.total}")
+    print(f"missing_meta_segments: {result.missing_segments}")
+    print(f"boundary_eos_missing: {result.boundary_eos_missing}")
+    print(f"label_leak_suspect: {result.label_leak_suspect}")
+    print()
+    print("Next actions:")
+    print("- If missing_meta_segments>0: modify your packing pipeline to emit meta.segments for auditable boundaries.")
+    print("- If boundary_eos_missing>0: ensure each original sample ends with EOS (or boundary token).")
+    print("- If label_leak_suspect>0: ensure labels are masked across boundaries (ignore_index=-100).")
+
+
+if __name__ == "__main__":
+    main()
+
+
+```
+
+---
+
+#### K2. 评测结果模板（eval-results-template.json）
+
+```json
+{
+  "meta": {
+    "run_id": "2026-04-29T12:00:00Z",
+    "step": 1000,
+    "generated_at": "2026-04-29T13:00:00Z",
+    "baseline_run_id": "2026-04-20T12:00:00Z",
+    "notes": "把这份文件当作“门禁输入”，由你的评测流水线写入。"
+  },
+  "metrics": {
+    "nan_steps": 0,
+    "overflow_rate": 0.0,
+    "contamination_suspect_rate": 0.002
+  },
+  "raw": {
+    "tokens_per_second_before": 10000.0,
+    "tokens_per_second_after": 10200.0,
+    "ifeval_score_before": 78.2,
+    "ifeval_score_after": 78.5,
+    "harmbench_asr_before": 0.12,
+    "harmbench_asr_after": 0.10,
+    "xstest_overrefusal_before": 0.06,
+    "xstest_overrefusal_after": 0.06,
+    "avg_output_length_before": 210.0,
+    "avg_output_length_after": 220.5,
+    "lc_winrate_before": 0.52,
+    "lc_winrate_after": 0.53,
+    "truthfulness_score_before": 0.41,
+    "truthfulness_score_after": 0.41
+  }
+}
+
+```
+
+---
+
+#### K3. 评测结果基线模板（eval-results-baseline-template.json）
+
+```json
+{
+  "meta": {
+    "run_id": "BASELINE",
+    "generated_at": "2026-04-20T12:00:00Z",
+    "notes": "用于 baseline 统计。你可以提供 1 个或多个 baseline 文件；脚本会对 baseline_metric 做 mean/std/min/max 等统计。"
+  },
+  "raw": {
+    "tokens_per_second_after": 10000.0,
+    "ifeval_score_after": 78.2,
+    "harmbench_asr_after": 0.12,
+    "xstest_overrefusal_after": 0.06,
+    "avg_output_length_after": 210.0,
+    "lc_winrate_after": 0.52,
+    "truthfulness_score_after": 0.41,
+    "contamination_suspect_rate": 0.002
+  }
+}
+
+
+```
+
+---
+
+#### K4. Run Manifest 模板（JSON 格式）
+
+```json
+{
+  "meta": {
+    "run_name": "smolllm3-pretrain-exp001",
+    "run_id": "2026-04-29T12:00:00Z",
+    "owner": "your-name",
+    "intent": "pretrain",
+    "notes": "一句话说明这次实验要验证什么假设"
+  },
+  "code": {
+    "git_repo": "https://github.com/your-org/your-repo",
+    "git_commit": "abcdef123456",
+    "docker_image": "ghcr.io/your-org/train:2026.04",
+    "python": "3.11",
+    "packages": {
+      "torch": "2.6.0",
+      "transformers": "4.xx",
+      "datasets": "3.xx",
+      "accelerate": "1.xx",
+      "trl": "0.xx",
+      "peft": "0.xx",
+      "deepspeed": "0.xx"
+    }
+  },
+  "hardware": {
+    "cluster": "name",
+    "node_count": 8,
+    "gpus_per_node": 8,
+    "gpu_type": "H100",
+    "interconnect": "NVSwitch+IB",
+    "storage": "local-nvme+object-store"
+  },
+  "parallelism": {
+    "world_size": 64,
+    "tp": 4,
+    "pp": 2,
+    "dp": 8,
+    "cp": 1,
+    "ep": 1,
+    "sp": true,
+    "zeRO_stage": null
+  },
+  "precision": {
+    "dtype": "bf16",
+    "transformer_engine": false,
+    "fp8_recipe": null,
+    "grad_scaler": null
+  },
+  "model": {
+    "architecture": "decoder-only",
+    "base_model": null,
+    "config": {
+      "layers": 32,
+      "hidden_size": 4096,
+      "heads": 32,
+      "seq_length": 4096,
+      "vocab_size": 128000,
+      "rope": "rope",
+      "moe": false
+    }
+  },
+  "tokenizer": {
+    "name_or_path": "your-tokenizer",
+    "hash": "sha256:...",
+    "normalization": "none",
+    "chat_template_version": "v1"
+  },
+  "data": {
+    "recipe_version": "data-v12",
+    "mixture": [
+      {
+        "name": "fineweb-edu",
+        "weight": 0.55,
+        "source": "HuggingFaceFW/fineweb-edu"
+      },
+      {
+        "name": "code",
+        "weight": 0.2,
+        "source": "bigcode/the-stack"
+      },
+      {
+        "name": "math",
+        "weight": 0.25,
+        "source": "HuggingFaceTB/fine-math"
+      }
+    ],
+    "dedup": {
+      "method": "minhash",
+      "threshold": 0.85
+    },
+    "contamination_checks": {
+      "enabled": true,
+      "methods": [
+        "min-k-prob",
+        "dcq"
+      ]
+    },
+    "packing": {
+      "enabled": true,
+      "strategy": "concat",
+      "eos_policy": "single-eos"
+    }
+  },
+  "train": {
+    "global_batch_size": 1024,
+    "micro_batch_size": 2,
+    "grad_accum_steps": 64,
+    "tokens_per_update_est": 4194304,
+    "optimizer": "adamw",
+    "lr": {
+      "peak": 0.0003,
+      "schedule": "cosine",
+      "warmup_steps": 2000
+    },
+    "weight_decay": 0.1,
+    "grad_clip": 1.0,
+    "max_steps": 200000,
+    "eval_every_steps": 1000,
+    "save_every_steps": 2000
+  },
+  "eval": {
+    "primary_metric": "arena-hard",
+    "guardrail_metrics": [
+      "ifeval",
+      "harmbench",
+      "xstest",
+      "lc-alpacaeval"
+    ],
+    "judge": {
+      "model": "gpt-4.1",
+      "prompt_version": "judge-v3",
+      "temperature": 0.0
+    }
+  },
+  "checkpoints": {
+    "type": "sharded-train",
+    "path": "s3://bucket/ckpts/run_id/",
+    "resume_from": null,
+    "save_optimizer_state": true
+  },
+  "logging": {
+    "wandb_project": "smol-training",
+    "log_step_time_breakdown": true,
+    "log_mfu": true,
+    "log_nccl": false
+  },
+  "acceptance_criteria": {
+    "gates": [
+      {
+        "id": "GATE-NUMERIC-STABILITY",
+        "relates_to": ["FM-01", "FM-08"],
+        "must_hold": [
+          {"metric": "nan_steps", "op": "==", "value": 0},
+          {"metric": "overflow_rate", "op": "<=", "value": 1e-6}
+        ],
+        "action_on_fail": "stop_and_debug"
+      },
+      {
+        "id": "GATE-THROUGHPUT",
+        "relates_to": ["FM-05"],
+        "must_hold": [
+          {
+            "metric": "tokens_per_second_after",
+            "op": ">=",
+            "value": {"baseline_metric": "tokens_per_second_after", "stat": "mean", "mult": 0.9, "add": 0.0}
+          }
+        ],
+        "action_on_fail": "investigate_data_and_comm"
+      },
+      {
+        "id": "GATE-INSTRUCTION-FOLLOWING",
+        "relates_to": ["FM-07", "FM-10"],
+        "must_hold": [{"metric": "ifeval_score_delta", "op": ">=", "value": -0.5}],
+        "action_on_fail": "rollback_template_or_packing"
+      },
+      {
+        "id": "GATE-SAFETY",
+        "relates_to": ["FM-04"],
+        "must_hold": [
+          {"metric": "harmbench_asr_delta", "op": "<=", "value": 0.0},
+          {"metric": "xstest_overrefusal_delta", "op": "<=", "value": 0.0}
+        ],
+        "action_on_fail": "adjust_safety_training_or_guard"
+      },
+      {
+        "id": "GATE-LENGTH-BIAS",
+        "relates_to": ["FM-03", "FM-18"],
+        "must_hold": [
+          {"metric": "avg_output_length_delta", "op": "<=", "value": 0.1},
+          {"metric": "lc_winrate_delta", "op": ">=", "value": 0.0}
+        ],
+        "action_on_fail": "run_length_controlled_eval_and_rebalance_data"
+      },
+      {
+        "id": "GATE-TRUTHFULNESS",
+        "relates_to": ["FM-11"],
+        "must_hold": [{"metric": "truthfulness_score_delta", "op": ">=", "value": 0.0}],
+        "action_on_fail": "add_truthfulness_guardrail_and_data"
+      },
+      {
+        "id": "GATE-CONTAMINATION",
+        "relates_to": ["FM-14"],
+        "must_hold": [{"metric": "contamination_suspect_rate", "op": "<=", "value": 0.01}],
+        "action_on_fail": "run_contamination_audit_and_remove_neighbors"
+      }
+    ]
+  }
+}
+
+```
+
+---
+
+#### K5. Run Manifest 模板（YAML 格式）
+
+```yaml
+# 每次训练建议落盘的 run manifest（模板）
+# 用途：可复现、可审计、可对比（把“这次跑和上次差在哪”变成可 diff 的文件）
+
+meta:
+  run_name: "smolllm3-pretrain-exp001"
+  run_id: "2026-04-29T12:00:00Z"
+  owner: "your-name"
+  intent: "pretrain" # pretrain / midtrain / sft / rm / dpo / ppo / grpo
+  notes: "一句话说明这次实验要验证什么假设"
+
+code:
+  git_repo: "https://github.com/your-org/your-repo"
+  git_commit: "abcdef123456"
+  docker_image: "ghcr.io/your-org/train:2026.04"
+  python: "3.11"
+  packages:
+    torch: "2.6.0"
+    transformers: "4.xx"
+    datasets: "3.xx"
+    accelerate: "1.xx"
+    trl: "0.xx"
+    peft: "0.xx"
+    deepspeed: "0.xx"
+
+hardware:
+  cluster: "name"
+  node_count: 8
+  gpus_per_node: 8
+  gpu_type: "H100"
+  interconnect: "NVSwitch+IB"
+  storage: "local-nvme+object-store"
+
+parallelism:
+  world_size: 64
+  tp: 4
+  pp: 2
+  dp: 8
+  cp: 1
+  ep: 1
+  sp: true
+  zeRO_stage: null # 2/3 or null for megatron/nanotron
+
+precision:
+  dtype: "bf16" # bf16 / fp16 / fp8
+  transformer_engine: false
+  fp8_recipe: null
+  grad_scaler: null
+
+model:
+  architecture: "decoder-only"
+  base_model: null # 如果从现有模型继续训练，填 HF repo id
+  config:
+    layers: 32
+    hidden_size: 4096
+    heads: 32
+    seq_length: 4096
+    vocab_size: 128000
+    rope: "rope"
+    moe: false
+
+tokenizer:
+  name_or_path: "your-tokenizer"
+  hash: "sha256:..."
+  normalization: "none"
+  chat_template_version: "v1"
+
+data:
+  recipe_version: "data-v12"
+  mixture:
+    - name: "fineweb-edu"
+      weight: 0.55
+      source: "HuggingFaceFW/fineweb-edu"
+    - name: "code"
+      weight: 0.20
+      source: "bigcode/the-stack"
+    - name: "math"
+      weight: 0.25
+      source: "HuggingFaceTB/fine-math"
+  dedup:
+    method: "minhash"
+    threshold: 0.85
+  contamination_checks:
+    enabled: true
+    methods: ["min-k-prob", "dcq"]
+  packing:
+    enabled: true
+    strategy: "concat"
+    eos_policy: "single-eos"
+
+train:
+  global_batch_size: 1024
+  micro_batch_size: 2
+  grad_accum_steps: 64
+  tokens_per_update_est: 4194304 # GBS * seq_length (近似)
+  optimizer: "adamw"
+  lr:
+    peak: 3.0e-4
+    schedule: "cosine"
+    warmup_steps: 2000
+  weight_decay: 0.1
+  grad_clip: 1.0
+  max_steps: 200000
+  eval_every_steps: 1000
+  save_every_steps: 2000
+
+eval:
+  primary_metric: "arena-hard"
+  guardrail_metrics:
+    - "ifeval"
+    - "harmbench"
+    - "xstest"
+    - "lc-alpacaeval"
+  judge:
+    model: "gpt-4.1"
+    prompt_version: "judge-v3"
+    temperature: 0.0
+
+checkpoints:
+  type: "sharded-train" # sharded-train / merged-publish
+  path: "s3://bucket/ckpts/run_id/"
+  resume_from: null
+  save_optimizer_state: true
+
+logging:
+  wandb_project: "smol-training"
+  log_step_time_breakdown: true
+  log_mfu: true
+  log_nccl: false
+
+acceptance_criteria:
+  # 把“门禁”写具体：否则训练结束后很难判断该不该上线/继续跑。
+  # 建议把每条门禁关联到故障模式字典（FM-xx），便于快速定位与复盘。
+  gates:
+    - id: "GATE-NUMERIC-STABILITY"
+      relates_to: ["FM-01", "FM-08"]
+      must_hold:
+        - metric: "nan_steps"
+          op: "=="
+          value: 0
+        - metric: "overflow_rate"
+          op: "<="
+          value: 1.0e-6
+      action_on_fail: "stop_and_debug"
+    - id: "GATE-THROUGHPUT"
+      relates_to: ["FM-05"]
+      must_hold:
+        - metric: "tokens_per_second_after"
+          op: ">="
+          value:
+            baseline_metric: "tokens_per_second_after"
+            stat: "mean"
+            mult: 0.9
+            add: 0.0
+      action_on_fail: "investigate_data_and_comm"
+    - id: "GATE-INSTRUCTION-FOLLOWING"
+      relates_to: ["FM-07", "FM-10"]
+      must_hold:
+        - metric: "ifeval_score_delta"
+          op: ">="
+          value: -0.5 # 不允许退化超过 0.5 分（示例）
+      action_on_fail: "rollback_template_or_packing"
+    - id: "GATE-SAFETY"
+      relates_to: ["FM-04"]
+      must_hold:
+        - metric: "harmbench_asr_delta"
+          op: "<="
+          value: 0.0
+        - metric: "xstest_overrefusal_delta"
+          op: "<="
+          value: 0.0
+      action_on_fail: "adjust_safety_training_or_guard"
+    - id: "GATE-LENGTH-BIAS"
+      relates_to: ["FM-03", "FM-18"]
+      must_hold:
+        - metric: "avg_output_length_delta"
+          op: "<="
+          value: 0.1 # 相对比例；示例
+        - metric: "lc_winrate_delta"
+          op: ">="
+          value: 0.0
+      action_on_fail: "run_length_controlled_eval_and_rebalance_data"
+    - id: "GATE-TRUTHFULNESS"
+      relates_to: ["FM-11"]
+      must_hold:
+        - metric: "truthfulness_score_delta"
+          op: ">="
+          value: 0.0
+      action_on_fail: "add_truthfulness_guardrail_and_data"
+    - id: "GATE-CONTAMINATION"
+      relates_to: ["FM-14"]
+      must_hold:
+        - metric: "contamination_suspect_rate"
+          op: "<="
+          value: 0.01
+      action_on_fail: "run_contamination_audit_and_remove_neighbors"
+
+```
 
 ---
 
